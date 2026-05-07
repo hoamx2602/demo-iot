@@ -152,19 +152,9 @@ publish("pump/sensors", data) ──▶ [phân phối] ──▶ on_message(data
 
 ### Bước 1.1 — Cài Mosquitto
 
-```python
-import subprocess, sys
-
-print("🦟 Cài Mosquitto MQTT Broker...")
-result = subprocess.run(
-    ["apt-get", "install", "-y", "-q", "mosquitto"],
-    capture_output=True, check=True
-)
-print("✅ Mosquitto đã cài xong!")
-
-# Kiểm tra version
-v = subprocess.run(["mosquitto", "--version"], capture_output=True, text=True)
-print(f"   Version: {v.stdout.split(chr(10))[0]}")
+```bash
+!apt-get install -y -q mosquitto
+!mosquitto --version
 ```
 
 **Tại sao Mosquitto?**  
@@ -172,31 +162,29 @@ Mosquitto là MQTT broker phổ biến nhất thế giới — nhẹ (~1MB RAM),
 
 ### Bước 1.2 — Tạo config và khởi động
 
+**Tạo file config** — cho phép kết nối không cần username/password (phù hợp lab):
+
+```bash
+%%writefile /tmp/mosquitto.conf
+listener 1883
+allow_anonymous true
+```
+
+**Khởi động broker** trong background:
+
 ```python
 import subprocess, time
 
-# Config: cho phép kết nối không cần username/password (phù hợp lab)
-with open("/tmp/mosquitto.conf", "w") as f:
-    f.write("listener 1883\n")
-    f.write("allow_anonymous true\n")
-
-# Dừng instance cũ nếu có
 subprocess.run(["pkill", "-f", "mosquitto"], capture_output=True)
 time.sleep(0.5)
 
-# Khởi động broker trong background
 proc = subprocess.Popen(
     ["mosquitto", "-c", "/tmp/mosquitto.conf"],
-    stdout=subprocess.DEVNULL,
-    stderr=subprocess.DEVNULL
+    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
 )
 time.sleep(1)
 
-if proc.poll() is None:
-    print(f"✅ Mosquitto đang chạy (PID {proc.pid})")
-    print(f"   Listening on: localhost:1883")
-else:
-    print("❌ Lỗi khởi động Mosquitto")
+print(f"✅ Mosquitto running (PID {proc.pid}) — localhost:1883" if proc.poll() is None else "❌ Lỗi khởi động")
 ```
 
 **Giải thích config:**
@@ -308,16 +296,8 @@ httpx            ← HTTP client async (dùng cho gọi AI API)
 
 Cài tất cả:
 
-```python
-import subprocess, sys
-
-print("📦 Cài Python packages từ requirements.txt...")
-subprocess.run(
-    [sys.executable, "-m", "pip", "install", "-q",
-     "-r", "/content/pumpguard/backend/requirements.txt"],
-    check=True
-)
-print("✅ Tất cả packages đã cài!")
+```bash
+!pip install -q -r /content/pumpguard/backend/requirements.txt
 ```
 
 ---
@@ -578,24 +558,17 @@ Thay vì viết Python code để:
 
 ### Bước 3.1 — Cài Node.js và Node-RED
 
-```python
-import subprocess, time, sys
+```bash
+# Bước 1: Thêm repo Node.js 20 LTS và cài đặt
+!curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+!apt-get install -y -q nodejs
+!node --version
+```
 
-print("📦 Cài Node.js...")
-subprocess.run("curl -fsSL https://deb.nodesource.com/setup_20.x | bash -",
-               shell=True, capture_output=True, check=True)
-subprocess.run(["apt-get", "install", "-y", "-q", "nodejs"],
-               capture_output=True, check=True)
-
-v = subprocess.run(["node", "--version"], capture_output=True, text=True)
-print(f"✅ Node.js: {v.stdout.strip()}")
-
-print("📦 Cài Node-RED (có thể mất 1-2 phút)...")
-subprocess.run(
-    ["npm", "install", "-g", "--unsafe-perm", "--silent", "node-red"],
-    capture_output=True, check=True
-)
-print("✅ Node-RED đã cài xong!")
+```bash
+# Bước 2: Cài Node-RED globally (mất 1-2 phút)
+!npm install -g --unsafe-perm --silent node-red
+!node-red --version
 ```
 
 ### Bước 3.2 — Copy `nodered/flows.json`
