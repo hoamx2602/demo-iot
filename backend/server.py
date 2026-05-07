@@ -40,6 +40,7 @@ load_dotenv()
 AI_PROVIDER       = os.getenv("AI_PROVIDER", "claude").lower()
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 OPENAI_API_KEY    = os.getenv("OPENAI_API_KEY", "")
+GEMINI_API_KEY    = os.getenv("GEMINI_API_KEY", "")
 MQTT_HOST         = os.getenv("MQTT_HOST", "localhost")
 MQTT_PORT         = int(os.getenv("MQTT_PORT", "1883"))
 TOPIC_SENSORS     = "pump/sensors"
@@ -48,11 +49,13 @@ RESEND_API_KEY    = os.getenv("RESEND_API_KEY", "")
 ALERT_FROM        = os.getenv("ALERT_FROM", "PumpGuard AI <onboarding@resend.dev>")
 ALERT_TO          = [e.strip() for e in os.getenv("ALERT_TO", "").split(",") if e.strip()]
 
-# AI Model
-if AI_PROVIDER == "claude":
-    AI_MODEL = os.getenv("AI_MODEL", "claude-sonnet-4-6")
-else:
-    AI_MODEL = os.getenv("AI_MODEL", "gpt-4o")
+# AI Model defaults per provider
+_MODEL_DEFAULTS = {
+    "claude": "claude-sonnet-4-6",
+    "openai": "gpt-4o",
+    "gemini": "gemini-1.5-flash",   # free-tier friendly
+}
+AI_MODEL = os.getenv("AI_MODEL", _MODEL_DEFAULTS.get(AI_PROVIDER, "gemini-1.5-flash"))
 
 # ─── AI System Prompt ────────────────────────────────────────────────────────
 SYSTEM_PROMPT = """You are an AI-powered predictive maintenance analyst specializing in industrial pump systems for oil & gas operations.
@@ -289,6 +292,8 @@ Analyze this data and provide your predictive maintenance assessment."""
         return await _call_claude(user_msg)
     elif AI_PROVIDER == "openai":
         return await _call_openai(user_msg)
+    elif AI_PROVIDER == "gemini":
+        return await _call_gemini(user_msg)
     else:
         return _mock_ai_response(snapshot)
 
@@ -339,6 +344,37 @@ async def _call_openai(user_msg: str) -> dict:
         return json.loads(response.choices[0].message.content)
     except Exception as e:
         print(f"[OpenAI API] Error: {e}")
+        return _mock_ai_response_generic(error=str(e))
+
+
+async def _call_gemini(user_msg: str) -> dict:
+    if not GEMINI_API_KEY:
+        print("[AI] No GEMINI_API_KEY, using mock response")
+        return _mock_ai_response_generic()
+
+    try:
+        import google.generativeai as genai
+        genai.configure(api_key=GEMINI_API_KEY)
+        model = genai.GenerativeModel(
+            model_name=AI_MODEL,
+            system_instruction=SYSTEM_PROMPT,
+            generation_config=genai.GenerationConfig(
+                response_mime_type="application/json",
+                max_output_tokens=1500,
+            ),
+        )
+        response = await asyncio.to_thread(
+            model.generate_content, user_msg
+        )
+        text = response.text.strip()
+        # Strip markdown fences if present
+        if text.startswith("```"):
+            text = text.split("```")[1]
+            if text.startswith("json"):
+                text = text[4:]
+        return json.loads(text)
+    except Exception as e:
+        print(f"[Gemini API] Error: {e}")
         return _mock_ai_response_generic(error=str(e))
 
 
