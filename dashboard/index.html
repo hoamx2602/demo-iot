@@ -769,8 +769,13 @@
 // ═══════════════════════════════════════════════════════════════
 // CONFIG
 // ═══════════════════════════════════════════════════════════════
-const WS_URL = `ws://${location.hostname}:8000/ws`;
-const API_URL = `http://${location.hostname}:8000`;
+// Smart URL detection: localhost → ws://:8000, cloud (Codespaces/ngrok/Render) → wss:// no port
+const _isLocal = ['localhost', '127.0.0.1'].includes(location.hostname);
+const _wsProto = location.protocol === 'https:' ? 'wss' : 'ws';
+const _httpProto = location.protocol === 'https:' ? 'https' : 'http';
+const _port = _isLocal ? ':8000' : '';
+const WS_URL  = `${_wsProto}://${location.hostname}${_port}/ws`;
+const API_URL = `${_httpProto}://${location.hostname}${_port}`;
 
 const SENSOR_CONFIG = {
   vibration:   { warn: 4.5, crit: 7.0,  invert: false, decimals: 2, color: '#06b6d4' },

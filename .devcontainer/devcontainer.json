@@ -1,0 +1,40 @@
+{
+  "name": "PumpGuard AI — IoT Demo",
+  "image": "mcr.microsoft.com/devcontainers/python:3.11",
+
+  "features": {
+    "ghcr.io/devcontainers/features/node:1": { "version": "20" }
+  },
+
+  "onCreateCommand": "bash .devcontainer/setup.sh",
+
+  "postStartCommand": "bash .devcontainer/start_services.sh",
+
+  "forwardPorts": [8000, 1883, 1880],
+  "portsAttributes": {
+    "8000": {
+      "label": "Dashboard & API",
+      "onAutoForward": "openPreview",
+      "protocol": "https"
+    },
+    "1883": { "label": "MQTT Broker", "onAutoForward": "silent" },
+    "1880": { "label": "Node-RED",    "onAutoForward": "notify" }
+  },
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "ms-python.black-formatter",
+        "redhat.vscode-yaml",
+        "ms-vscode.live-server"
+      ],
+      "settings": {
+        "python.defaultInterpreterPath": "/usr/local/bin/python",
+        "terminal.integrated.defaultProfile.linux": "bash"
+      }
+    }
+  },
+
+  "remoteUser": "vscode"
+}
