@@ -679,15 +679,62 @@
   <div class="card">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:10px">
       <div class="card-title" style="margin-bottom:0">🔬 Individual Sensor Inspector</div>
-      <div class="sensor-select-bar" style="margin-bottom:0">
-        <span class="sensor-select-label">Select group:</span>
-        <select class="sensor-select" id="sensor-select" onchange="selectSensorGroup(this.value)">
-          <option value="">— choose a sensor group —</option>
-          <option value="vibration">⚡ Vibration  (sensor_00 – sensor_21, 22 sensors)</option>
-          <option value="temperature">🌡 Temperature  (sensor_22 – sensor_31, 10 sensors)</option>
-          <option value="pressure">📊 Pressure  (sensor_32 – sensor_41, 10 sensors)</option>
-          <option value="flow_rate">💧 Flow Rate  (sensor_42 – sensor_51, 10 sensors)</option>
+      <div class="sensor-select-bar" style="margin-bottom:0;gap:8px">
+        <span class="sensor-select-label">Group:</span>
+        <select class="sensor-select" id="sensor-select" onchange="selectSensorGroup(this.value)" style="min-width:180px">
+          <option value="">— choose a group —</option>
+          <option value="vibration">⚡ Vibration (sensor_00–21)</option>
+          <option value="temperature">🌡 Temperature (sensor_22–31)</option>
+          <option value="pressure">📊 Pressure (sensor_32–41)</option>
+          <option value="flow_rate">💧 Flow Rate (sensor_42–51)</option>
         </select>
+        <span class="sensor-select-label" style="margin-left:8px">Sensor:</span>
+        <select class="sensor-select" id="single-sensor-select" onchange="selectSingleSensor(this.value)" style="min-width:160px" disabled>
+          <option value="">— select group first —</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- Single-sensor detail card (shown when a specific sensor is picked) -->
+    <div id="single-sensor-panel" style="display:none;margin-bottom:16px">
+      <div style="background:var(--surface2);border-radius:12px;padding:18px 20px;border:1px solid var(--border)">
+        <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+          <div>
+            <div style="font-size:.65rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:.07em;margin-bottom:4px" id="ss-id-label">—</div>
+            <div style="display:flex;align-items:baseline;gap:6px">
+              <span style="font-size:2.4rem;font-weight:800;font-variant-numeric:tabular-nums" id="ss-value">–</span>
+              <span style="font-size:.85rem;color:var(--text-muted)" id="ss-unit">–</span>
+            </div>
+            <div style="margin-top:6px" id="ss-badge"><span class="sensor-badge badge-normal">NORMAL</span></div>
+          </div>
+          <div style="flex:1;min-width:200px">
+            <div style="font-size:.68rem;color:var(--text-muted);margin-bottom:6px">Position on threshold scale</div>
+            <div class="threshold-track" style="margin-bottom:0">
+              <div class="tzone g" id="ss-zone-g" style="border-radius:5px"></div>
+              <div class="tzone y" id="ss-zone-y"></div>
+              <div class="tzone r" id="ss-zone-r" style="border-radius:5px"></div>
+              <div class="tptr" id="ss-ptr" style="left:2%;color:var(--green)"></div>
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;min-width:220px">
+            <div style="background:var(--surface);border-radius:8px;padding:10px 12px">
+              <div style="font-size:.62rem;color:var(--text-muted);text-transform:uppercase">Deviation</div>
+              <div style="font-size:1rem;font-weight:700" id="ss-dev">–</div>
+            </div>
+            <div style="background:var(--surface);border-radius:8px;padding:10px 12px">
+              <div style="font-size:.62rem;color:var(--text-muted);text-transform:uppercase">vs Group Avg</div>
+              <div style="font-size:1rem;font-weight:700" id="ss-vs-avg">–</div>
+            </div>
+            <div style="background:var(--surface);border-radius:8px;padding:10px 12px">
+              <div style="font-size:.62rem;color:var(--text-muted);text-transform:uppercase">Normal Range</div>
+              <div style="font-size:.85rem;font-weight:600" id="ss-normal-range">–</div>
+            </div>
+            <div style="background:var(--surface);border-radius:8px;padding:10px 12px">
+              <div style="font-size:.62rem;color:var(--text-muted);text-transform:uppercase">Sensor Offset</div>
+              <div style="font-size:.85rem;font-weight:600" id="ss-offset">–</div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -700,7 +747,7 @@
     <div id="sensor-detail-panel" style="display:none">
       <div style="display:flex;align-items:center;gap:16px;margin-bottom:12px;flex-wrap:wrap">
         <span id="detail-group-label" style="font-size:.8rem;font-weight:600;color:var(--cyan)"></span>
-        <span style="font-size:.72rem;color:var(--text-muted)">— values are per-sensor readings within the group</span>
+        <span style="font-size:.72rem;color:var(--text-muted)">— click a sensor card to inspect it individually</span>
       </div>
       <div class="sensor-heatmap" id="sensor-heatmap"></div>
     </div>
@@ -1169,7 +1216,14 @@ function switchTab(tab) {
   const PAGES = ['page-live','page-timeline','page-ai','page-sensors'];
   document.querySelectorAll('.tab').forEach((t, i) => t.classList.toggle('active', TABS[i] === tab));
   document.querySelectorAll('.page').forEach((p, i) => p.classList.toggle('active', PAGES[i] === `page-${tab}`));
-  if (tab === 'ai') document.getElementById('alert-badge').style.display = 'none';
+  if (tab === 'ai') {
+    document.getElementById('alert-badge').style.display = 'none';
+    // Auto-trigger AI analysis if no result yet
+    const aiContent = document.getElementById('ai-content');
+    if (aiContent.style.display === 'none') {
+      runAIAnalysis();
+    }
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -1565,22 +1619,100 @@ const _sensorOffsets = {};
 })();
 
 let _selectedGroup = '';
+let _selectedSensor = '';
 let _lastGroupValues = {}; // {vibration: {value, status}, ...}
 
 function selectSensorGroup(key) {
   _selectedGroup = key;
+  _selectedSensor = '';
   const empty  = document.getElementById('sensor-detail-empty');
   const panel  = document.getElementById('sensor-detail-panel');
-  if (!key) { empty.style.display='block'; panel.style.display='none'; return; }
+  const singlePanel = document.getElementById('single-sensor-panel');
+  const singleSel = document.getElementById('single-sensor-select');
+
+  // Reset single-sensor selector
+  singlePanel.style.display = 'none';
+  singleSel.value = '';
+
+  if (!key) {
+    empty.style.display = 'block';
+    panel.style.display = 'none';
+    singleSel.innerHTML = '<option value="">— select group first —</option>';
+    singleSel.disabled = true;
+    return;
+  }
+
   empty.style.display = 'none';
   panel.style.display = 'block';
   const g = SENSOR_GROUPS_MAP[key];
   document.getElementById('detail-group-label').textContent =
     `${g.label} — ${g.sensors.length} sensors`;
-  // Render with last known value
+
+  // Populate single-sensor dropdown
+  const cfg = SENSOR_GAUGE_CFG[key];
+  singleSel.disabled = false;
+  singleSel.innerHTML = '<option value="">— pick a sensor —</option>' +
+    g.sensors.map(s => `<option value="${s}">${s}</option>`).join('');
+
+  // Render heatmap with last known value
   const cached = _lastGroupValues[key];
   if (cached) renderSensorHeatmap(key, cached.value, cached.status);
-  else renderSensorHeatmap(key, SENSOR_GAUGE_CFG[key].warnVal * 0.85, 'NORMAL');
+  else renderSensorHeatmap(key, cfg.warnVal * 0.85, 'NORMAL');
+}
+
+function selectSingleSensor(sensorId) {
+  _selectedSensor = sensorId;
+  const singlePanel = document.getElementById('single-sensor-panel');
+  if (!sensorId || !_selectedGroup) { singlePanel.style.display = 'none'; return; }
+  singlePanel.style.display = 'block';
+  updateSingleSensorPanel(sensorId);
+}
+
+function updateSingleSensorPanel(sensorId) {
+  if (!sensorId || !_selectedGroup) return;
+  const key   = _selectedGroup;
+  const cfg   = SENSOR_GAUGE_CFG[key];
+  const grp   = SENSOR_GROUPS_MAP[key];
+  const cached = _lastGroupValues[key];
+  const groupAvg = cached ? cached.value : cfg.warnVal * 0.85;
+  const status   = cached ? cached.status : 'NORMAL';
+
+  const offset = _sensorOffsets[sensorId] || 0;
+  const val    = Math.max(cfg.min, Math.min(cfg.max, groupAvg * (1 + offset)));
+  const dp     = key === 'flow_rate' ? 0 : 2;
+  const sStatus = cfg.higherIsBad
+    ? (val >= cfg.critVal ? 'CRITICAL' : val >= cfg.warnVal ? 'WARNING' : 'NORMAL')
+    : (val <= cfg.critVal ? 'CRITICAL' : val <= cfg.warnVal ? 'WARNING' : 'NORMAL');
+  const color  = _gcolor(sStatus);
+  const dev    = groupAvg > 0 ? ((val - groupAvg) / groupAvg * 100) : 0;
+
+  // Zone positions
+  const z = _zones(cfg);
+  document.getElementById('ss-zone-g').style.left  = (z.g[0]*100).toFixed(1)+'%';
+  document.getElementById('ss-zone-g').style.width = ((z.g[1]-z.g[0])*100).toFixed(1)+'%';
+  document.getElementById('ss-zone-y').style.left  = (z.y[0]*100).toFixed(1)+'%';
+  document.getElementById('ss-zone-y').style.width = ((z.y[1]-z.y[0])*100).toFixed(1)+'%';
+  document.getElementById('ss-zone-r').style.left  = (z.r[0]*100).toFixed(1)+'%';
+  document.getElementById('ss-zone-r').style.width = ((z.r[1]-z.r[0])*100).toFixed(1)+'%';
+
+  const pct = _gpct(val, cfg.min, cfg.max) * 100;
+  const ptr = document.getElementById('ss-ptr');
+  ptr.style.left  = pct.toFixed(1) + '%';
+  ptr.style.color = color;
+
+  document.getElementById('ss-id-label').textContent = sensorId + ' · ' + cfg.label;
+  document.getElementById('ss-value').textContent = val.toFixed(dp);
+  document.getElementById('ss-value').style.color = color;
+  document.getElementById('ss-unit').textContent  = cfg.unit;
+  document.getElementById('ss-badge').innerHTML   =
+    `<span class="sensor-badge badge-${sStatus==='CRITICAL'?'critical':sStatus==='WARNING'?'warning':'normal'}">${sStatus}</span>`;
+  document.getElementById('ss-dev').textContent  = (dev >= 0 ? '+' : '') + dev.toFixed(2) + '%';
+  document.getElementById('ss-dev').style.color  = Math.abs(dev) > 5 ? color : 'var(--text)';
+  document.getElementById('ss-vs-avg').textContent = (val - groupAvg >= 0 ? '+' : '') + (val - groupAvg).toFixed(dp) + ' ' + cfg.unit;
+  document.getElementById('ss-vs-avg').style.color = color;
+  const warnRange  = cfg.higherIsBad ? `0 – ${cfg.warnVal}` : `> ${cfg.warnVal}`;
+  document.getElementById('ss-normal-range').textContent = warnRange + ' ' + cfg.unit;
+  document.getElementById('ss-offset').textContent = (offset >= 0 ? '+' : '') + (offset * 100).toFixed(2) + '%';
 }
 
 function renderSensorHeatmap(key, groupAvg, status) {
@@ -1651,6 +1783,12 @@ function updateSensorPage(data) {
       : (val <= cfg.critVal ? 'CRITICAL' : val <= cfg.warnVal ? 'WARNING' : 'NORMAL'));
     updateGauge(key, val, status);
     updateSensorRow(key, val, status);
+    // Cache for individual inspector
+    _lastGroupValues[key] = { value: val, status };
+    if (_selectedGroup === key) {
+      renderSensorHeatmap(key, val, status);
+      if (_selectedSensor) updateSingleSensorPanel(_selectedSensor);
+    }
   }
 }
 
