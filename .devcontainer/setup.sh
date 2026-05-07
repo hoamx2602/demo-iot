@@ -7,4 +7,5 @@ pip install -r backend/requirements.txt -q
 echo "🦟 Installing Mosquitto MQTT broker..."
 sudo apt-get update -qq && sudo apt-get install -y -qq mosquitto
 
-echo "✅ Setup complete! Run '.devcontainer/start_services.sh' to start."
+echo "✅ Setup complete!"
+echo "👉 Tiếp theo: chạy 'bash start.sh' trong terminal để khởi động hệ thống"

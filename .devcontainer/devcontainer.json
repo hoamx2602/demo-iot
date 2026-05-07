@@ -8,7 +8,7 @@
 
   "onCreateCommand": "bash .devcontainer/setup.sh",
 
-  "postStartCommand": "bash .devcontainer/start_services.sh",
+  "postStartCommand": "echo '✅ Ready! Run: bash start.sh'",
 
   "forwardPorts": [8000, 1883, 1880],
   "portsAttributes": {
