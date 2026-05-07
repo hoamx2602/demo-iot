@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>Presenter Control</title>
+<style>
+  :root {
+    --bg: #0a0e1a; --surface: #111827; --border: #374151;
+    --text: #f9fafb; --muted: #6b7280;
+    --green: #10b981; --yellow: #f59e0b; --red: #ef4444; --cyan: #06b6d4;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  body {
+    background: var(--bg); color: var(--text);
+    font-family: system-ui, sans-serif;
+    min-height: 100dvh; display: flex; flex-direction: column;
+    padding: 20px 16px; gap: 12px; max-width: 420px; margin: 0 auto;
+  }
+
+  .header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding-bottom: 12px; border-bottom: 1px solid var(--border);
+  }
+  .header-title { font-size: .9rem; font-weight: 700; color: var(--muted); }
+  .conn-indicator {
+    display: flex; align-items: center; gap: 6px;
+    font-size: .75rem; color: var(--muted);
+  }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+  .dot.ok { background: var(--green); animation: pulse 2s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1}50%{opacity:.4} }
+
+  .btn {
+    width: 100%; padding: 22px 16px;
+    border-radius: 14px; border: none; cursor: pointer;
+    font-size: 1.1rem; font-weight: 700; letter-spacing: .01em;
+    display: flex; align-items: center; justify-content: space-between;
+    transition: transform .1s, opacity .1s;
+    -webkit-user-select: none; user-select: none;
+  }
+  .btn:active { transform: scale(.97); opacity: .85; }
+  .btn-label { display: flex; align-items: center; gap: 12px; }
+  .btn-icon { font-size: 1.5rem; }
+  .btn-sub { font-size: .72rem; font-weight: 400; opacity: .7; display: block; margin-top: 2px; }
+  .btn-arrow { font-size: 1.2rem; opacity: .5; }
+
+  .btn-normal   { background: rgba(16,185,129,.15); color: var(--green); border: 1.5px solid rgba(16,185,129,.3); }
+  .btn-warning  { background: rgba(245,158,11,.15); color: var(--yellow);border: 1.5px solid rgba(245,158,11,.3); }
+  .btn-critical { background: rgba(239,68,68,.15);  color: var(--red);   border: 1.5px solid rgba(239,68,68,.3); }
+  .btn-ai       { background: rgba(6,182,212,.15);  color: var(--cyan);  border: 1.5px solid rgba(6,182,212,.3); }
+
+  .section-label {
+    font-size: .65rem; font-weight: 600; text-transform: uppercase;
+    letter-spacing: .1em; color: var(--muted); padding: 4px 2px;
+  }
+
+  .toast {
+    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(80px);
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; padding: 10px 20px; font-size: .82rem;
+    color: var(--text); transition: transform .25s ease; white-space: nowrap;
+    pointer-events: none; z-index: 99;
+  }
+  .toast.show { transform: translateX(-50%) translateY(0); }
+
+  .status-bar {
+    margin-top: auto; padding-top: 16px; border-top: 1px solid var(--border);
+    font-size: .72rem; color: var(--muted); text-align: center; line-height: 1.6;
+  }
+  code {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 4px; padding: 1px 6px; font-size: .7rem;
+    font-family: monospace; color: var(--cyan);
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-title">⚙ Presenter Control</div>
+  <div class="conn-indicator">
+    <div class="dot" id="dot"></div>
+    <span id="conn-label">Checking…</span>
+  </div>
+</div>
+
+<div class="section-label">Machine State</div>
+
+<button class="btn btn-normal" onclick="send('normal')">
+  <div class="btn-label">
+    <span class="btn-icon">✅</span>
+    <div>
+      Normal Operation
+      <span class="btn-sub">All sensors within range</span>
+    </div>
+  </div>
+  <span class="btn-arrow">›</span>
+</button>
+
+<button class="btn btn-warning" onclick="send('warning')">
+  <div class="btn-label">
+    <span class="btn-icon">⚠️</span>
+    <div>
+      Simulate Anomaly
+      <span class="btn-sub">Sensors trending outside bounds</span>
+    </div>
+  </div>
+  <span class="btn-arrow">›</span>
+</button>
+
+<button class="btn btn-critical" onclick="send('critical')">
+  <div class="btn-label">
+    <span class="btn-icon">🔴</span>
+    <div>
+      Simulate Critical
+      <span class="btn-sub">Immediate action required</span>
+    </div>
+  </div>
+  <span class="btn-arrow">›</span>
+</button>
+
+<div class="section-label" style="margin-top:8px">AI Analysis</div>
+
+<button class="btn btn-ai" onclick="sendAI()">
+  <div class="btn-label">
+    <span class="btn-icon">🤖</span>
+    <div>
+      Run AI Analysis
+      <span class="btn-sub">Trigger full assessment & cost impact</span>
+    </div>
+  </div>
+  <span class="btn-arrow">›</span>
+</button>
+
+<div class="status-bar">
+  Dashboard at <code id="dash-url">–</code><br>
+  Control via terminal: <code>curl -X POST /control/warning</code>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const BASE = `${location.protocol}//${location.hostname}:8000`;
+
+document.getElementById('dash-url').textContent =
+  `${location.hostname}:8000/dashboard/`;
+
+// Health check
+async function checkBackend() {
+  try {
+    const r = await fetch(BASE + '/health');
+    if (r.ok) {
+      document.getElementById('dot').className = 'dot ok';
+      document.getElementById('conn-label').textContent = 'Connected';
+    } else throw new Error();
+  } catch {
+    document.getElementById('dot').className = 'dot';
+    document.getElementById('conn-label').textContent = 'Offline';
+  }
+}
+checkBackend();
+setInterval(checkBackend, 5000);
+
+// Send state command
+async function send(state) {
+  showToast('Sending…');
+  try {
+    const r = await fetch(`${BASE}/control/${state}`, { method: 'POST' });
+    const d = await r.json();
+    const labels = { normal: '✅ Normal', warning: '⚠ Anomaly', critical: '🔴 Critical' };
+    showToast(`${labels[state]} → ${d.clients} screen(s)`);
+  } catch {
+    showToast('⚠ Backend not reachable');
+  }
+}
+
+async function sendAI() {
+  showToast('Triggering AI analysis…');
+  try {
+    const r = await fetch(`${BASE}/control/ai/trigger`, { method: 'POST' });
+    const d = await r.json();
+    showToast(`🤖 AI triggered → ${d.clients} screen(s)`);
+  } catch {
+    showToast('⚠ Backend not reachable');
+  }
+}
+
+// Toast
+let _toastTimer;
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(_toastTimer);
+  _toastTimer = setTimeout(() => t.classList.remove('show'), 2200);
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,1672 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PumpGuard AI — Predictive Maintenance Dashboard</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #0a0e1a;
+    --surface: #111827;
+    --surface2: #1f2937;
+    --border: #374151;
+    --text: #f9fafb;
+    --text-muted: #9ca3af;
+    --green: #10b981;
+    --yellow: #f59e0b;
+    --red: #ef4444;
+    --blue: #3b82f6;
+    --purple: #8b5cf6;
+    --cyan: #06b6d4;
+    --font: 'Inter', system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: var(--font); min-height: 100vh; }
+
+  /* ── Top Bar ── */
+  .topbar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 24px; background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    position: sticky; top: 0; z-index: 100;
+  }
+  .topbar-logo { display: flex; align-items: center; gap: 10px; }
+  .topbar-logo svg { width: 32px; height: 32px; }
+  .topbar-title { font-size: 1.1rem; font-weight: 700; }
+  .topbar-title span { color: var(--cyan); }
+  .topbar-meta { display: flex; gap: 16px; align-items: center; }
+  .conn-badge {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 0.75rem; padding: 4px 10px;
+    border-radius: 20px; background: var(--surface2);
+    border: 1px solid var(--border);
+  }
+  .conn-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-muted); }
+  .conn-dot.connected { background: var(--green); animation: pulse 2s infinite; }
+  .conn-dot.error { background: var(--red); }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+  .time-display { font-size: 0.75rem; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+
+  /* ── Tab Navigation ── */
+  .tabs { display: flex; border-bottom: 1px solid var(--border); background: var(--surface); padding: 0 24px; }
+  .tab {
+    padding: 12px 20px; cursor: pointer; font-size: 0.85rem; font-weight: 500;
+    color: var(--text-muted); border-bottom: 2px solid transparent;
+    transition: all .2s; white-space: nowrap;
+  }
+  .tab:hover { color: var(--text); }
+  .tab.active { color: var(--cyan); border-bottom-color: var(--cyan); }
+  .tab-badge {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 18px; height: 18px; border-radius: 50%;
+    background: var(--red); color: #fff; font-size: 0.65rem;
+    margin-left: 6px; font-weight: 700;
+  }
+
+  /* ── Page Container ── */
+  .page { display: none; padding: 20px 24px; }
+  .page.active { display: block; }
+
+  /* ── Grid Layouts ── */
+  .sensor-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media(max-width: 900px) { .two-col { grid-template-columns: 1fr; } }
+
+  /* ── Cards ── */
+  .card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 12px; padding: 20px;
+  }
+  .card-title {
+    font-size: 0.75rem; font-weight: 600; text-transform: uppercase;
+    letter-spacing: .08em; color: var(--text-muted); margin-bottom: 14px;
+    display: flex; align-items: center; gap: 8px;
+  }
+
+  /* ── Sensor Cards ── */
+  .sensor-card { position: relative; overflow: hidden; }
+  .sensor-card::before {
+    content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px;
+    background: var(--sensor-color, var(--blue));
+  }
+  .sensor-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 8px; }
+  .sensor-name { font-size: 0.8rem; color: var(--text-muted); font-weight: 500; }
+  .sensor-icon { font-size: 1.4rem; }
+  .sensor-value { font-size: 2.2rem; font-weight: 700; line-height: 1; margin-bottom: 4px; font-variant-numeric: tabular-nums; }
+  .sensor-unit { font-size: 0.75rem; color: var(--text-muted); margin-bottom: 10px; }
+  .sensor-badge {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 3px 8px; border-radius: 4px; font-size: 0.7rem; font-weight: 600;
+  }
+  .badge-normal  { background: rgba(16,185,129,.15); color: var(--green); }
+  .badge-warning { background: rgba(245,158,11,.15); color: var(--yellow); }
+  .badge-critical{ background: rgba(239,68,68,.15);  color: var(--red);    }
+  .sparkline-wrap { margin-top: 12px; height: 50px; }
+
+  /* ── Health Score ── */
+  .health-score-wrap { display: flex; align-items: center; gap: 24px; margin-bottom: 20px; }
+  .health-ring { position: relative; width: 100px; height: 100px; flex-shrink: 0; }
+  .health-ring svg { transform: rotate(-90deg); }
+  .health-ring-text {
+    position: absolute; inset: 0; display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+  }
+  .health-ring-num { font-size: 1.5rem; font-weight: 700; }
+  .health-ring-label { font-size: 0.6rem; color: var(--text-muted); text-transform: uppercase; }
+  .health-details { flex: 1; }
+  .health-status { font-size: 1.1rem; font-weight: 700; margin-bottom: 6px; }
+  .health-sub { font-size: 0.8rem; color: var(--text-muted); line-height: 1.5; }
+
+  /* ── Timeline ── */
+  .tl-wrap { display: flex; flex-direction: column; gap: 0; }
+  .tl-label-row { display: flex; justify-content: space-between; margin-bottom: 10px; }
+  .tl-label { font-size: 0.7rem; color: var(--text-muted); font-weight: 500; }
+  .tl-label.right { text-align: right; }
+  .tl-label.center { text-align: center; }
+  .tl-track {
+    position: relative; height: 8px;
+    background: var(--surface2); border-radius: 4px; overflow: visible;
+  }
+  .tl-fill {
+    height: 100%; border-radius: 4px; transition: width .5s ease;
+    background: linear-gradient(90deg, var(--green) 0%, var(--yellow) 60%, var(--red) 100%);
+  }
+  .tl-pin {
+    position: absolute; top: 50%; transform: translate(-50%, -50%);
+    display: flex; flex-direction: column; align-items: center;
+    pointer-events: none;
+  }
+  .tl-pin-dot {
+    width: 16px; height: 16px; border-radius: 50%;
+    border: 2px solid var(--bg); box-shadow: 0 0 0 2px currentColor;
+    z-index: 2; position: relative;
+  }
+  .tl-pin-line {
+    width: 1px; height: 28px; background: currentColor; opacity: .4;
+  }
+  .tl-pin-tag {
+    font-size: 0.65rem; font-weight: 600; white-space: nowrap;
+    padding: 2px 6px; border-radius: 3px;
+    background: var(--surface2); border: 1px solid currentColor;
+  }
+  .tl-phases {
+    display: flex; margin-top: 16px; border-radius: 6px; overflow: hidden; height: 6px;
+  }
+  .tl-phase-block { height: 100%; transition: flex .5s ease; }
+  .tl-stats {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 16px;
+  }
+  .tl-stat {
+    background: var(--surface2); border-radius: 8px; padding: 12px 14px;
+    border-left: 3px solid var(--border);
+  }
+  .tl-stat-label { font-size: 0.65rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: .05em; margin-bottom: 4px; }
+  .tl-stat-value { font-size: 1.1rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+  /* Chart wrapper */
+  .chart-wrap { position: relative; height: 220px; }
+  .chart-wrap canvas { position: absolute; inset: 0; }
+  /* Event log */
+  .events-list { display: flex; flex-direction: column; gap: 8px; max-height: 240px; overflow-y: auto; }
+  .event-item {
+    display: flex; gap: 12px; padding: 10px 14px;
+    background: var(--surface2); border-radius: 8px; align-items: flex-start;
+  }
+  .event-dot { width: 8px; height: 8px; border-radius: 50%; margin-top: 5px; flex-shrink: 0; }
+  .event-time { font-size: 0.7rem; color: var(--text-muted); margin-bottom: 2px; font-variant-numeric: tabular-nums; }
+  .event-msg { font-size: 0.8rem; line-height: 1.4; }
+
+  /* ── AI Panel ── */
+  .ai-loading {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    padding: 40px; gap: 16px; color: var(--text-muted);
+  }
+  .ai-spinner {
+    width: 40px; height: 40px; border: 3px solid var(--border);
+    border-top-color: var(--cyan); border-radius: 50%;
+    animation: spin 1s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .risk-banner {
+    display: flex; align-items: center; gap: 16px;
+    padding: 16px 20px; border-radius: 10px; margin-bottom: 20px;
+  }
+  .risk-banner.LOW      { background: rgba(16,185,129,.1); border: 1px solid rgba(16,185,129,.3); }
+  .risk-banner.MEDIUM   { background: rgba(245,158,11,.1); border: 1px solid rgba(245,158,11,.3); }
+  .risk-banner.HIGH     { background: rgba(239,68,68,.1);  border: 1px solid rgba(239,68,68,.3);  }
+  .risk-banner.CRITICAL { background: rgba(139,92,246,.1); border: 1px solid rgba(139,92,246,.3); }
+  .risk-level { font-size: 1.8rem; font-weight: 800; }
+  .risk-level.LOW      { color: var(--green); }
+  .risk-level.MEDIUM   { color: var(--yellow); }
+  .risk-level.HIGH     { color: var(--red); }
+  .risk-level.CRITICAL { color: var(--purple); }
+  .risk-summary { font-size: 0.85rem; line-height: 1.5; }
+  .confidence-bar-wrap { margin-top: 8px; }
+  .confidence-bar { height: 4px; background: var(--border); border-radius: 2px; overflow: hidden; }
+  .confidence-fill { height: 100%; background: var(--cyan); border-radius: 2px; transition: width .6s ease; }
+  .confidence-label { font-size: 0.7rem; color: var(--text-muted); margin-top: 4px; }
+
+  .anomaly-list { display: flex; flex-direction: column; gap: 8px; }
+  .anomaly-item {
+    padding: 12px 16px; background: var(--surface2); border-radius: 8px;
+    border-left: 3px solid var(--red);
+  }
+  .anomaly-sensor { font-size: 0.75rem; font-weight: 700; text-transform: uppercase; color: var(--red); }
+  .anomaly-reading { font-size: 1rem; font-weight: 600; margin: 4px 0; }
+  .anomaly-interp { font-size: 0.78rem; color: var(--text-muted); line-height: 1.4; }
+
+  .actions-list { display: flex; flex-direction: column; gap: 10px; }
+  .action-item {
+    display: flex; gap: 12px; padding: 12px 16px;
+    background: var(--surface2); border-radius: 8px;
+  }
+  .action-priority {
+    width: 24px; height: 24px; border-radius: 50%; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 0.7rem; font-weight: 700;
+  }
+  .prio-1 { background: rgba(239,68,68,.2); color: var(--red); }
+  .prio-2 { background: rgba(245,158,11,.2); color: var(--yellow); }
+  .prio-3 { background: rgba(59,130,246,.2); color: var(--blue); }
+  .action-text { font-size: 0.82rem; }
+  .action-meta { font-size: 0.7rem; color: var(--text-muted); margin-top: 3px; }
+
+  .cost-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .cost-card { padding: 16px; background: var(--surface2); border-radius: 8px; }
+  .cost-label { font-size: 0.7rem; text-transform: uppercase; color: var(--text-muted); margin-bottom: 6px; }
+  .cost-amount { font-size: 1.5rem; font-weight: 700; }
+  .cost-amount.bad  { color: var(--red); }
+  .cost-amount.good { color: var(--green); }
+  .cost-sub { font-size: 0.72rem; color: var(--text-muted); margin-top: 4px; line-height: 1.4; }
+  .savings-banner {
+    grid-column: 1/-1; padding: 14px 16px;
+    background: rgba(16,185,129,.1); border: 1px solid rgba(16,185,129,.3);
+    border-radius: 8px; text-align: center;
+  }
+  .savings-amount { font-size: 1.8rem; font-weight: 800; color: var(--green); }
+  .savings-label { font-size: 0.75rem; color: var(--text-muted); margin-top: 4px; }
+
+  /* ── Operator Controls ── */
+  .ctrl-panel {
+    position: fixed; bottom: 20px; right: 20px;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 12px; padding: 12px 16px; z-index: 200;
+    display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+    max-width: 420px;
+  }
+  .ctrl-label { font-size: 0.7rem; color: var(--text-muted); font-weight: 600; width: 100%; }
+  .ctrl-btn {
+    padding: 6px 14px; border-radius: 6px; border: 1px solid var(--border);
+    background: var(--surface2); color: var(--text); cursor: pointer;
+    font-size: 0.75rem; font-weight: 500; transition: all .15s;
+  }
+  .ctrl-btn:hover { background: var(--border); }
+  .ctrl-btn.primary { background: var(--cyan); color: #000; border-color: var(--cyan); }
+  .ctrl-btn.danger  { background: rgba(239,68,68,.2); border-color: var(--red); color: var(--red); }
+
+  /* ── Scrollbar ── */
+  ::-webkit-scrollbar { width: 4px; } ::-webkit-scrollbar-track { background: var(--surface2); }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  section-header { display: block; font-size: 0.8rem; font-weight: 600; color: var(--text-muted); margin-bottom: 12px; text-transform: uppercase; letter-spacing: .06em; }
+
+  /* ── Sensor Status Page ──────────────────────────────────── */
+  .gauge-grid {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 16px;
+  }
+  @media(max-width:860px) { .gauge-grid { grid-template-columns: repeat(2,1fr); } }
+
+  .gauge-card {
+    background: var(--surface); border: 1.5px solid var(--border);
+    border-radius: 14px; padding: 14px 10px 12px;
+    display: flex; flex-direction: column; align-items: center;
+    transition: border-color .4s, box-shadow .4s;
+  }
+  .gauge-card.status-warning  { border-color: rgba(245,158,11,.55); box-shadow: 0 0 0 1px rgba(245,158,11,.15); }
+  .gauge-card.status-critical {
+    border-color: rgba(239,68,68,.65); box-shadow: 0 0 0 1px rgba(239,68,68,.2);
+    animation: gcard-pulse 1.6s ease-in-out infinite;
+  }
+  @keyframes gcard-pulse {
+    0%,100% { box-shadow: 0 0 0 1px rgba(239,68,68,.2); }
+    50%      { box-shadow: 0 0 10px rgba(239,68,68,.35); }
+  }
+  .gauge-card-label { font-size: .68rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: .07em; margin-bottom: 6px; }
+  .gauge-svg-wrap   { width: 148px; height: 118px; }
+  .gauge-chip {
+    margin-top: 8px; padding: 3px 12px; border-radius: 20px;
+    font-size: .68rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em;
+  }
+
+  /* Sensor detail rows */
+  .sensor-rows      { display: flex; flex-direction: column; }
+  .sensor-row       { padding: 14px 0; border-bottom: 1px solid var(--border); }
+  .sensor-row:last-child { border-bottom: none; padding-bottom: 0; }
+  .srow-header      { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+  .srow-name        { font-size: .88rem; font-weight: 700; }
+  .srow-right       { display: flex; align-items: center; gap: 10px; }
+  .srow-value       { font-size: 1.35rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .srow-unit        { font-size: .72rem; color: var(--text-muted); }
+  .trend-arrow      { font-size: 1rem; font-weight: 800; }
+
+  .threshold-track  {
+    position: relative; height: 10px; border-radius: 5px;
+    background: var(--surface2); overflow: visible; margin-bottom: 8px;
+  }
+  .tzone { position: absolute; top: 0; height: 100%; border-radius: 5px; }
+  .tzone.g { background: rgba(16,185,129,.3); }
+  .tzone.y { background: rgba(245,158,11,.3); }
+  .tzone.r { background: rgba(239,68,68,.3); }
+  .tptr {
+    position: absolute; top: 50%; transform: translate(-50%,-50%);
+    width: 16px; height: 16px; border-radius: 50%;
+    border: 3px solid var(--bg); box-shadow: 0 0 0 2px currentColor, 0 0 6px currentColor;
+    transition: left .4s ease, color .4s ease; z-index: 5;
+  }
+  .srow-meta {
+    display: flex; flex-wrap: wrap; gap: 10px 20px;
+    font-size: .7rem; color: var(--text-muted);
+  }
+  .srow-meta b { color: var(--text); }
+  .srow-zones { display: flex; gap: 16px; font-size: .68rem; color: var(--text-muted); margin-top: 5px; }
+  .zone-tag { display: flex; align-items: center; gap: 4px; }
+  .zone-dot { width: 7px; height: 7px; border-radius: 50%; }
+
+  /* Sensor group selector */
+  .sensor-select-bar {
+    display: flex; align-items: center; gap: 12px;
+    margin-bottom: 16px; flex-wrap: wrap;
+  }
+  .sensor-select-label { font-size: .75rem; color: var(--text-muted); font-weight: 600; white-space: nowrap; }
+  .sensor-select {
+    flex: 1; min-width: 220px; max-width: 360px;
+    background: var(--surface); border: 1px solid var(--border);
+    color: var(--text); border-radius: 8px; padding: 8px 12px;
+    font-size: .8rem; cursor: pointer; outline: none;
+    appearance: none; -webkit-appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%236b7280'/%3E%3C/svg%3E");
+    background-repeat: no-repeat; background-position: right 12px center;
+    padding-right: 32px; transition: border-color .2s;
+  }
+  .sensor-select:focus { border-color: var(--cyan); }
+  .sensor-select option { background: #1f2937; }
+
+  /* Individual sensor heatmap */
+  .sensor-heatmap {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(118px, 1fr));
+    gap: 8px;
+  }
+  .sheat-cell {
+    border-radius: 8px; padding: 10px 12px;
+    border-left: 2.5px solid;
+    transition: background .35s, border-color .35s;
+    cursor: default;
+  }
+  .sheat-id    { font-size: .62rem; color: var(--text-muted); font-family: monospace; margin-bottom: 4px; letter-spacing: .03em; }
+  .sheat-val   { font-size: 1.05rem; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.2; }
+  .sheat-unit  { font-size: .6rem; color: var(--text-muted); }
+  .sheat-bar   { margin-top: 7px; height: 3px; background: var(--surface2); border-radius: 2px; overflow: hidden; }
+  .sheat-fill  { height: 100%; border-radius: 2px; transition: width .4s ease; }
+  .sheat-dev   { font-size: .6rem; margin-top: 4px; opacity: .7; }
+</style>
+</head>
+<body>
+
+<!-- ══ Top Bar ══════════════════════════════════════════════════════════════ -->
+<div class="topbar">
+  <div class="topbar-logo">
+    <svg viewBox="0 0 32 32" fill="none">
+      <circle cx="16" cy="16" r="15" stroke="#06b6d4" stroke-width="2"/>
+      <path d="M8 16a8 8 0 0 1 16 0" stroke="#06b6d4" stroke-width="2" stroke-linecap="round"/>
+      <circle cx="16" cy="16" r="3" fill="#06b6d4"/>
+      <path d="M16 8v4M16 20v4M8 16H4M28 16h-4" stroke="#06b6d4" stroke-width="1.5" stroke-linecap="round"/>
+    </svg>
+    <div>
+      <div class="topbar-title">PumpGuard <span>AI</span></div>
+      <div style="font-size:.65rem;color:var(--text-muted)">Industrial Pump Monitoring · Oil & Gas</div>
+    </div>
+  </div>
+  <div class="topbar-meta">
+    <div class="conn-badge">
+      <div class="conn-dot" id="ws-dot"></div>
+      <span id="ws-status">Connecting…</span>
+    </div>
+    <div class="time-display" id="clock">--:--:--</div>
+  </div>
+</div>
+
+<!-- ══ Tab Navigation ═══════════════════════════════════════════════════════ -->
+<div class="tabs">
+  <div class="tab active" onclick="switchTab('live')">📡 Live Sensor Feed</div>
+  <div class="tab" onclick="switchTab('timeline')">📈 Machine Health Timeline</div>
+  <div class="tab" onclick="switchTab('ai')">
+    🤖 AI Recommendation
+    <span class="tab-badge" id="alert-badge" style="display:none">1</span>
+  </div>
+  <div class="tab" onclick="switchTab('sensors')">🔩 Sensor Status</div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════════════
+     PAGE 1 — Live Sensor Feed
+═══════════════════════════════════════════════════════════════════════════ -->
+<div class="page active" id="page-live">
+
+  <!-- Health Score + Overall Status -->
+  <div class="card" style="margin-bottom:16px">
+    <div class="card-title">🏭 Machine Overall Health</div>
+    <div class="health-score-wrap">
+      <div class="health-ring">
+        <svg width="100" height="100" viewBox="0 0 100 100">
+          <circle cx="50" cy="50" r="42" stroke="var(--border)" stroke-width="8" fill="none"/>
+          <circle id="health-ring-fill" cx="50" cy="50" r="42"
+            stroke="var(--green)" stroke-width="8" fill="none"
+            stroke-dasharray="264" stroke-dashoffset="264"
+            stroke-linecap="round" style="transition:all .6s ease"/>
+        </svg>
+        <div class="health-ring-text">
+          <div class="health-ring-num" id="health-num">--</div>
+          <div class="health-ring-label">Health</div>
+        </div>
+      </div>
+      <div class="health-details">
+        <div class="health-status" id="overall-status">Waiting for data…</div>
+        <div class="health-sub" id="health-sub">Connect MQTT replay script to start streaming sensor data.</div>
+        <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
+          <span class="sensor-badge badge-normal" id="badge-normal">✅ NORMAL</span>
+          <span style="font-size:.75rem;color:var(--text-muted);align-self:center" id="data-time"></span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 4 Sensor Cards -->
+  <div class="sensor-grid" id="sensor-grid">
+    <div class="card sensor-card" id="card-vibration"   style="--sensor-color:var(--cyan)">
+      <div class="sensor-header">
+        <div><div class="sensor-name">⚡ Vibration</div></div>
+        <span class="sensor-badge badge-normal" id="badge-vibration">NORMAL</span>
+      </div>
+      <div class="sensor-value" id="val-vibration">–</div>
+      <div class="sensor-unit">mm/s</div>
+      <div class="sparkline-wrap"><canvas id="spark-vibration" height="50"></canvas></div>
+    </div>
+    <div class="card sensor-card" id="card-temperature" style="--sensor-color:var(--red)">
+      <div class="sensor-header">
+        <div><div class="sensor-name">🌡 Temperature</div></div>
+        <span class="sensor-badge badge-normal" id="badge-temperature">NORMAL</span>
+      </div>
+      <div class="sensor-value" id="val-temperature">–</div>
+      <div class="sensor-unit">°C</div>
+      <div class="sparkline-wrap"><canvas id="spark-temperature" height="50"></canvas></div>
+    </div>
+    <div class="card sensor-card" id="card-pressure"    style="--sensor-color:var(--yellow)">
+      <div class="sensor-header">
+        <div><div class="sensor-name">📊 Pressure</div></div>
+        <span class="sensor-badge badge-normal" id="badge-pressure">NORMAL</span>
+      </div>
+      <div class="sensor-value" id="val-pressure">–</div>
+      <div class="sensor-unit">bar</div>
+      <div class="sparkline-wrap"><canvas id="spark-pressure" height="50"></canvas></div>
+    </div>
+    <div class="card sensor-card" id="card-flow_rate"   style="--sensor-color:var(--blue)">
+      <div class="sensor-header">
+        <div><div class="sensor-name">💧 Flow Rate</div></div>
+        <span class="sensor-badge badge-normal" id="badge-flow_rate">NORMAL</span>
+      </div>
+      <div class="sensor-value" id="val-flow_rate">–</div>
+      <div class="sensor-unit">m³/h</div>
+      <div class="sparkline-wrap"><canvas id="spark-flow_rate" height="50"></canvas></div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════════════
+     PAGE 2 — Machine Health Timeline
+═══════════════════════════════════════════════════════════════════════════ -->
+<div class="page" id="page-timeline">
+
+  <!-- ── Failure Prediction Timeline ── -->
+  <div class="card" style="margin-bottom:16px">
+    <div class="card-title">🗺 Failure Prediction Timeline</div>
+
+    <div class="tl-wrap">
+      <!-- Phase labels above track -->
+      <div class="tl-label-row">
+        <span class="tl-label" style="color:var(--green)">● Normal Operation</span>
+        <span class="tl-label center" id="tl-phase-mid-label" style="color:var(--yellow);visibility:hidden">● Degrading</span>
+        <span class="tl-label right" id="tl-pred-time" style="color:var(--red)">Predicted Failure: –</span>
+      </div>
+
+      <!-- Main track + pins -->
+      <div class="tl-track" id="tl-track">
+        <div class="tl-fill" id="tl-progress" style="width:5%"></div>
+
+        <!-- Normal start pin -->
+        <div class="tl-pin" id="tl-pin-normal" style="left:5%;color:var(--green)">
+          <div class="tl-pin-dot" style="background:var(--green)"></div>
+          <div class="tl-pin-line"></div>
+          <div class="tl-pin-tag">Start</div>
+        </div>
+
+        <!-- AI Detection pin -->
+        <div class="tl-pin" id="tl-pin-ai" style="left:50%;color:var(--yellow);display:none">
+          <div class="tl-pin-dot" style="background:var(--yellow)"></div>
+          <div class="tl-pin-line"></div>
+          <div class="tl-pin-tag">🤖 AI Detected</div>
+        </div>
+
+        <!-- Predicted failure pin -->
+        <div class="tl-pin" id="tl-pin-fail" style="left:90%;color:var(--red);display:none">
+          <div class="tl-pin-dot" style="background:var(--red)"></div>
+          <div class="tl-pin-line"></div>
+          <div class="tl-pin-tag">⚠ Est. Failure</div>
+        </div>
+      </div>
+
+      <!-- Phase color strip -->
+      <div class="tl-phases" style="margin-top:48px">
+        <div class="tl-phase-block" id="tl-phase-normal" style="background:var(--green);opacity:.5;flex:1"></div>
+        <div class="tl-phase-block" id="tl-phase-degrade" style="background:var(--yellow);opacity:.5;flex:0"></div>
+        <div class="tl-phase-block" id="tl-phase-fail" style="background:var(--red);opacity:.4;flex:0"></div>
+      </div>
+
+      <!-- Stats row -->
+      <div class="tl-stats">
+        <div class="tl-stat" id="tl-health-card" style="border-left-color:var(--green)">
+          <div class="tl-stat-label">Machine Health</div>
+          <div class="tl-stat-value" id="tl-health">–</div>
+        </div>
+        <div class="tl-stat" id="tl-phase-card" style="border-left-color:var(--cyan)">
+          <div class="tl-stat-label">Current Phase</div>
+          <div class="tl-stat-value" id="tl-phase-val" style="font-size:.9rem">–</div>
+        </div>
+        <div class="tl-stat" style="border-left-color:var(--purple)">
+          <div class="tl-stat-label">Time in Phase</div>
+          <div class="tl-stat-value" id="tl-phase-duration">–</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Sensor Trends ── -->
+  <div class="card" style="margin-bottom:16px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+      <div class="card-title" style="margin-bottom:0">📉 Sensor Trends — Last 60 Readings</div>
+      <div style="display:flex;gap:12px;font-size:.7rem;color:var(--text-muted)">
+        <span style="display:flex;align-items:center;gap:4px"><span style="width:16px;height:2px;background:#06b6d4;display:inline-block"></span>Vibration</span>
+        <span style="display:flex;align-items:center;gap:4px"><span style="width:16px;height:2px;background:#ef4444;display:inline-block"></span>Temperature</span>
+        <span style="display:flex;align-items:center;gap:4px"><span style="width:16px;height:2px;background:#f59e0b;display:inline-block"></span>Pressure</span>
+      </div>
+    </div>
+    <div class="chart-wrap">
+      <canvas id="trend-chart"></canvas>
+    </div>
+  </div>
+
+  <!-- ── Event Log ── -->
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+      <div class="card-title" style="margin-bottom:0">📋 System Event Log</div>
+      <button onclick="clearEvents()" style="font-size:.7rem;color:var(--text-muted);background:none;border:1px solid var(--border);border-radius:4px;padding:3px 8px;cursor:pointer">Clear</button>
+    </div>
+    <div class="events-list" id="events-list">
+      <div style="color:var(--text-muted);font-size:.8rem;padding:10px;text-align:center">
+        Waiting for sensor data…
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════════════
+     PAGE 3 — AI Recommendation
+═══════════════════════════════════════════════════════════════════════════ -->
+<div class="page" id="page-ai">
+
+  <div id="ai-empty" class="ai-loading">
+    <div class="ai-spinner"></div>
+    <div style="font-weight:600">Waiting for anomaly to trigger AI analysis…</div>
+    <div style="font-size:.8rem;text-align:center;max-width:360px">
+      AI analysis activates automatically when sensor readings enter WARNING or CRITICAL state.
+      You can also click <strong>"Run AI Analysis"</strong> to trigger a manual assessment.
+    </div>
+  </div>
+
+  <div id="ai-content" style="display:none">
+
+    <!-- Risk Banner -->
+    <div class="risk-banner" id="risk-banner">
+      <div>
+        <div style="font-size:.7rem;text-transform:uppercase;color:var(--text-muted);margin-bottom:4px">Risk Level</div>
+        <div class="risk-level" id="risk-level">–</div>
+      </div>
+      <div style="flex:1">
+        <div class="risk-summary" id="risk-summary">–</div>
+        <div class="confidence-bar-wrap">
+          <div class="confidence-bar"><div class="confidence-fill" id="conf-fill" style="width:0%"></div></div>
+          <div class="confidence-label">AI Confidence: <span id="conf-label">–</span></div>
+        </div>
+      </div>
+      <div style="text-align:right">
+        <div style="font-size:.65rem;color:var(--text-muted)">Predicted failure</div>
+        <div style="font-size:1.3rem;font-weight:700;color:var(--red)" id="hours-to-fail">–</div>
+        <div style="font-size:.65rem;color:var(--text-muted)">hours</div>
+      </div>
+    </div>
+
+    <div class="two-col">
+      <!-- Anomalous Sensors -->
+      <div class="card">
+        <div class="card-title">🔍 Anomalous Sensors</div>
+        <div class="anomaly-list" id="anomaly-list">–</div>
+      </div>
+
+      <!-- Recommended Actions -->
+      <div class="card">
+        <div class="card-title">✅ Recommended Actions</div>
+        <div class="actions-list" id="actions-list">–</div>
+      </div>
+    </div>
+
+    <!-- Root Cause -->
+    <div class="card" style="margin-top:16px">
+      <div class="card-title">🔧 Root Cause Hypothesis</div>
+      <p style="font-size:.85rem;line-height:1.6;color:var(--text)" id="root-cause">–</p>
+      <p style="font-size:.78rem;color:var(--text-muted);margin-top:8px" id="failure-mode">–</p>
+    </div>
+
+    <!-- Cost Impact -->
+    <div class="card" style="margin-top:16px">
+      <div class="card-title">💰 Business Impact Analysis</div>
+      <div class="cost-grid">
+        <div class="cost-card">
+          <div class="cost-label">⛔ If No Action Taken</div>
+          <div class="cost-amount bad" id="cost-no-action">–</div>
+          <div class="cost-sub" id="cost-no-action-sub">–</div>
+        </div>
+        <div class="cost-card">
+          <div class="cost-label">✅ Planned Maintenance Cost</div>
+          <div class="cost-amount good" id="cost-planned">–</div>
+          <div class="cost-sub" id="cost-planned-sub">–</div>
+        </div>
+        <div class="savings-banner">
+          <div class="savings-amount" id="savings-amount">–</div>
+          <div class="savings-label">💡 Estimated Savings by Acting Now</div>
+        </div>
+      </div>
+    </div>
+
+    <div style="font-size:.72rem;color:var(--text-muted);margin-top:12px;text-align:right" id="ai-timestamp">–</div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════════════
+     PAGE 4 — Sensor Status
+═══════════════════════════════════════════════════════════════════════════ -->
+<div class="page" id="page-sensors">
+
+  <!-- 4 Arc Gauges -->
+  <div class="gauge-grid" id="gauge-grid"></div>
+
+  <!-- Threshold bars + stats -->
+  <div class="card" style="margin-bottom:16px">
+    <div class="card-title" style="margin-bottom:16px">🔍 Sensor Readings Detail</div>
+    <div class="sensor-rows" id="sensor-rows"></div>
+  </div>
+
+  <!-- Individual sensor inspector -->
+  <div class="card">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:10px">
+      <div class="card-title" style="margin-bottom:0">🔬 Individual Sensor Inspector</div>
+      <div class="sensor-select-bar" style="margin-bottom:0">
+        <span class="sensor-select-label">Select group:</span>
+        <select class="sensor-select" id="sensor-select" onchange="selectSensorGroup(this.value)">
+          <option value="">— choose a sensor group —</option>
+          <option value="vibration">⚡ Vibration  (sensor_00 – sensor_21, 22 sensors)</option>
+          <option value="temperature">🌡 Temperature  (sensor_22 – sensor_31, 10 sensors)</option>
+          <option value="pressure">📊 Pressure  (sensor_32 – sensor_41, 10 sensors)</option>
+          <option value="flow_rate">💧 Flow Rate  (sensor_42 – sensor_51, 10 sensors)</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- Placeholder when nothing selected -->
+    <div id="sensor-detail-empty" style="padding:28px;text-align:center;color:var(--text-muted);font-size:.82rem">
+      Select a sensor group above to inspect individual sensor readings
+    </div>
+
+    <!-- Heatmap grid (shown when group selected) -->
+    <div id="sensor-detail-panel" style="display:none">
+      <div style="display:flex;align-items:center;gap:16px;margin-bottom:12px;flex-wrap:wrap">
+        <span id="detail-group-label" style="font-size:.8rem;font-weight:600;color:var(--cyan)"></span>
+        <span style="font-size:.72rem;color:var(--text-muted)">— values are per-sensor readings within the group</span>
+      </div>
+      <div class="sensor-heatmap" id="sensor-heatmap"></div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ══ Operator Controls ════════════════════════════════════════════════════ -->
+<div class="ctrl-panel" id="ctrl-panel" style="display:none">
+  <div class="ctrl-label">⚙ Operator Controls</div>
+  <button class="ctrl-btn primary" onclick="setNormalState()">▶ Normal Operation</button>
+  <button class="ctrl-btn" onclick="setWarningState()" style="border-color:var(--yellow);color:var(--yellow)">⚠ Simulate Anomaly</button>
+  <button class="ctrl-btn danger" onclick="setCriticalState()">🔴 Simulate Critical</button>
+  <button class="ctrl-btn" onclick="runAIAnalysis()">🤖 Run AI Analysis</button>
+  <button class="ctrl-btn" onclick="toggleControls()" style="font-size:.65rem;color:var(--text-muted)">Hide</button>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════
+// CONFIG
+// ═══════════════════════════════════════════════════════════════
+const WS_URL = `ws://${location.hostname}:8000/ws`;
+const API_URL = `http://${location.hostname}:8000`;
+
+const SENSOR_CONFIG = {
+  vibration:   { warn: 4.5, crit: 7.0,  invert: false, decimals: 2, color: '#06b6d4' },
+  temperature: { warn: 85,  crit: 95,   invert: false, decimals: 1, color: '#ef4444' },
+  pressure:    { warn: 8.5, crit: 10,   invert: false, decimals: 2, color: '#f59e0b' },
+  flow_rate:   { warn: 110, crit: 90,   invert: true,  decimals: 1, color: '#3b82f6' },
+};
+
+// ═══════════════════════════════════════════════════════════════
+// STATE
+// ═══════════════════════════════════════════════════════════════
+const state = {
+  history: { vibration: [], temperature: [], pressure: [], flow_rate: [] },
+  events: [],
+  firstAnomalyDetected: false,
+  firstAnomalyRow: null,
+  startRow: null,
+  latestPayload: null,
+  aiDetectedAt: null,
+};
+
+// ═══════════════════════════════════════════════════════════════
+// SPARKLINE CHARTS
+// ═══════════════════════════════════════════════════════════════
+const sparks = {};
+for (const [name, cfg] of Object.entries(SENSOR_CONFIG)) {
+  const ctx = document.getElementById(`spark-${name}`);
+  sparks[name] = new Chart(ctx, {
+    type: 'line',
+    data: { labels: [], datasets: [{ data: [], borderColor: cfg.color, borderWidth: 2, fill: true,
+      backgroundColor: cfg.color + '20', pointRadius: 0, tension: 0.4 }] },
+    options: { responsive: true, maintainAspectRatio: false, animation: false,
+      plugins: { legend: { display: false } },
+      scales: { x: { display: false }, y: { display: false } } }
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════
+// TREND CHART (Page 2)
+// ═══════════════════════════════════════════════════════════════
+const trendCtx = document.getElementById('trend-chart');
+const trendChart = new Chart(trendCtx, {
+  type: 'line',
+  data: {
+    labels: [],
+    datasets: [
+      { label: 'Vibration (mm/s)', data: [], borderColor: '#06b6d4', borderWidth: 2, fill: false, pointRadius: 0, tension: 0.4, yAxisID: 'y' },
+      { label: 'Temperature (°C)', data: [], borderColor: '#ef4444', borderWidth: 2, fill: false, pointRadius: 0, tension: 0.4, yAxisID: 'y1' },
+      { label: 'Pressure (bar)',   data: [], borderColor: '#f59e0b', borderWidth: 2, fill: false, pointRadius: 0, tension: 0.4, yAxisID: 'y' },
+    ]
+  },
+  options: {
+    responsive: true, maintainAspectRatio: false, animation: false,
+    plugins: { legend: { labels: { color: '#9ca3af', boxWidth: 12, font: { size: 11 } } } },
+    scales: {
+      x: { display: false },
+      y: { position: 'left', grid: { color: '#374151' }, ticks: { color: '#9ca3af', font: { size: 11 } } },
+      y1: { position: 'right', grid: { drawOnChartArea: false }, ticks: { color: '#9ca3af', font: { size: 11 } } },
+    }
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════
+// SENSOR STATUS HELPERS
+// ═══════════════════════════════════════════════════════════════
+function getSensorStatus(name, val) {
+  const cfg = SENSOR_CONFIG[name];
+  if (cfg.invert) {
+    if (val <= cfg.crit) return 'CRITICAL';
+    if (val <= cfg.warn) return 'WARNING';
+  } else {
+    if (val >= cfg.crit) return 'CRITICAL';
+    if (val >= cfg.warn) return 'WARNING';
+  }
+  return 'NORMAL';
+}
+
+function updateSensorCard(name, val, statusOverride) {
+  const status = statusOverride || getSensorStatus(name, val);
+  const cfg = SENSOR_CONFIG[name];
+  const fmt = val.toFixed(cfg.decimals);
+
+  document.getElementById(`val-${name}`).textContent = fmt;
+
+  const badge = document.getElementById(`badge-${name}`);
+  const card  = document.getElementById(`card-${name}`);
+  badge.className = 'sensor-badge ' + ({NORMAL:'badge-normal', WARNING:'badge-warning', CRITICAL:'badge-critical'}[status]);
+  badge.textContent = status;
+  card.style.setProperty('--sensor-color',
+    { NORMAL: cfg.color, WARNING: 'var(--yellow)', CRITICAL: 'var(--red)' }[status]);
+
+  // Sparkline update
+  const spark = sparks[name];
+  const h = state.history[name];
+  h.push(val);
+  if (h.length > 40) h.shift();
+  spark.data.labels = h.map((_, i) => i);
+  spark.data.datasets[0].data = [...h];
+  spark.update('none');
+}
+
+// ═══════════════════════════════════════════════════════════════
+// HEALTH SCORE RING
+// ═══════════════════════════════════════════════════════════════
+function updateHealthRing(score) {
+  const pct = Math.max(0, Math.min(100, score));
+  const circumference = 264;
+  const offset = circumference - (pct / 100) * circumference;
+  const ring = document.getElementById('health-ring-fill');
+  ring.style.strokeDashoffset = offset;
+  ring.style.stroke = pct >= 70 ? 'var(--green)' : pct >= 40 ? 'var(--yellow)' : 'var(--red)';
+  document.getElementById('health-num').textContent = Math.round(pct);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// PROCESS SENSOR UPDATE
+// ═══════════════════════════════════════════════════════════════
+function processSensorUpdate(data) {
+  state.latestPayload = data;
+  if (!state.startRow && data.row) state.startRow = data.row;
+
+  const sensors = data.sensors || {};
+  const trends  = data.trends  || {};
+
+  // Update each sensor card
+  for (const name of Object.keys(SENSOR_CONFIG)) {
+    // Try trends.current first (from Node-RED), fallback to sensors
+    const val = trends[name]?.current ?? sensors[name];
+    if (val !== undefined) {
+      const statusOverride = trends[name]?.status;
+      updateSensorCard(name, val, statusOverride);
+    }
+  }
+
+  // Health + overall
+  updateHealthRing(data.health_score ?? 80);
+  const os = data.overall_status ?? data.machine_status ?? 'NORMAL';
+  const statusLabel = document.getElementById('overall-status');
+  const colorMap = { NORMAL:'var(--green)', WARNING:'var(--yellow)', CRITICAL:'var(--red)', BROKEN:'var(--red)', RECOVERING:'var(--yellow)' };
+  statusLabel.textContent = { NORMAL:'✅ Machine Operating Normally', WARNING:'⚠ Anomaly Detected — Monitor Closely',
+    CRITICAL:'🔴 Critical — Immediate Action Required', BROKEN:'🔴 PUMP FAILURE', RECOVERING:'🟡 Recovering' }[os] || os;
+  statusLabel.style.color = colorMap[os] || 'var(--text)';
+  document.getElementById('health-sub').textContent =
+    os === 'NORMAL' ? 'All sensor readings within acceptable ranges.' :
+    os === 'WARNING' ? 'Multiple sensors trending outside normal bounds. AI analysis triggered.' :
+    os === 'CRITICAL' ? 'Critical thresholds exceeded. Unplanned shutdown risk imminent.' :
+    os === 'BROKEN'   ? 'Pump failure detected. Emergency maintenance required.' : '';
+
+  // Sensor timestamp (subtle, top bar only)
+  document.getElementById('data-time').textContent = data.ts ? new Date(data.ts).toLocaleTimeString() : '';
+
+  // Trend chart data
+  for (const name of ['vibration', 'temperature', 'pressure']) {
+    const val = trends[name]?.current ?? sensors[name];
+    if (val !== undefined) {
+      const ds = { vibration: 0, temperature: 1, pressure: 2 }[name];
+      trendChart.data.datasets[ds].data.push(val);
+      if (trendChart.data.datasets[ds].data.length > 60)
+        trendChart.data.datasets[ds].data.shift();
+    }
+  }
+  trendChart.data.labels = Array.from({ length: trendChart.data.datasets[0].data.length }, (_, i) => i);
+  trendChart.update('none');
+
+  // Timeline
+  updateTimeline(data);
+
+  // Sensor Status page
+  updateSensorPage(data);
+
+  // First anomaly detection
+  if (!state.firstAnomalyDetected && (os === 'WARNING' || os === 'CRITICAL')) {
+    state.firstAnomalyDetected = true;
+    state.firstAnomalyRow = data.row;
+    state.aiDetectedAt = new Date();
+    document.getElementById('alert-badge').style.display = 'inline-flex';
+    addEvent('warning', `Anomaly detected — sensors outside normal bounds`);
+    document.getElementById('tl-pin-ai').style.display = 'flex';
+    document.getElementById('tl-phase-mid-label').style.visibility = 'visible';
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// TIMELINE
+// ═══════════════════════════════════════════════════════════════
+// Track phase start times
+const _phaseStart = { NORMAL: window._sessionStart || Date.now(), DEGRADING: null, CRITICAL: null };
+let   _lastPhase  = 'NORMAL';
+
+function _phaseDuration(phase) {
+  const t = _phaseStart[phase];
+  if (!t) return '–';
+  const sec = Math.round((Date.now() - t) / 1000);
+  if (sec < 60)   return sec + 's';
+  if (sec < 3600) return Math.floor(sec/60) + 'm ' + (sec%60) + 's';
+  return Math.floor(sec/3600) + 'h ' + Math.floor((sec%3600)/60) + 'm';
+}
+
+function updateTimeline(data) {
+  const pct   = parseFloat(data.progress_pct ?? 0);
+  const total = data.total ?? 1;
+  const score = Math.round(data.health_score ?? 80);
+  const os    = data.overall_status ?? data.machine_status ?? 'NORMAL';
+
+  // Map status → display phase
+  const phaseMap = {
+    NORMAL: 'Normal Operation', WARNING: 'Degrading', CRITICAL: 'Critical',
+    BROKEN: 'Failure', RECOVERING: 'Recovering'
+  };
+  const phaseKey = os === 'NORMAL' ? 'NORMAL' : os === 'RECOVERING' ? 'NORMAL' : 'DEGRADING';
+  if (phaseKey !== _lastPhase) {
+    _phaseStart[phaseKey] = Date.now();
+    _lastPhase = phaseKey;
+  }
+
+  // Progress fill (visual only — not shown as number)
+  document.getElementById('tl-progress').style.width = Math.max(pct, 1) + '%';
+
+  // Health stat
+  const healthEl   = document.getElementById('tl-health');
+  const healthCard = document.getElementById('tl-health-card');
+  healthEl.textContent = score + '%';
+  const hColor = score >= 70 ? 'var(--green)' : score >= 40 ? 'var(--yellow)' : 'var(--red)';
+  healthEl.style.color = hColor;
+  healthCard.style.borderLeftColor = hColor;
+
+  // Phase stat
+  const phaseColors = { NORMAL:'var(--green)', WARNING:'var(--yellow)', CRITICAL:'var(--red)', BROKEN:'var(--red)', RECOVERING:'var(--yellow)' };
+  document.getElementById('tl-phase-val').textContent  = phaseMap[os] || os;
+  document.getElementById('tl-phase-val').style.color  = phaseColors[os] || 'var(--text)';
+  document.getElementById('tl-phase-card').style.borderLeftColor = phaseColors[os] || 'var(--cyan)';
+
+  // Time in current phase
+  document.getElementById('tl-phase-duration').textContent = _phaseDuration(phaseKey);
+
+  // Phase strip proportions
+  if (state.firstAnomalyRow && total > 1) {
+    const anomPct = state.firstAnomalyRow / total;
+    document.getElementById('tl-phase-normal').style.flex  = anomPct;
+    document.getElementById('tl-phase-degrade').style.flex = Math.max(pct/100 - anomPct, 0.05);
+    document.getElementById('tl-phase-fail').style.flex    = Math.max(1 - pct/100, 0.02);
+  }
+
+  // Pin positions — enforce min separation so they never overlap
+  const startPct = 2;
+  let aiPct   = state.firstAnomalyRow && total > 1
+    ? Math.min((state.firstAnomalyRow / total) * 100, 85) : null;
+  let failPct = 93;
+
+  if (aiPct !== null) {
+    aiPct   = Math.max(aiPct, startPct + 14);
+    failPct = Math.max(failPct, aiPct + 10);
+    document.getElementById('tl-pin-ai').style.left = aiPct + '%';
+  }
+  document.getElementById('tl-pin-fail').style.left   = Math.min(failPct, 95) + '%';
+  document.getElementById('tl-pin-normal').style.left = startPct + '%';
+
+  if (!state._predHours) {
+    document.getElementById('tl-pred-time').textContent = 'Predicted Failure: –';
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// PROCESS AI RECOMMENDATION
+// ═══════════════════════════════════════════════════════════════
+function processAIRecommendation(data) {
+  document.getElementById('ai-empty').style.display = 'none';
+  document.getElementById('ai-content').style.display = 'block';
+  document.getElementById('alert-badge').style.display = 'inline-flex';
+
+  const risk = data.risk_level || 'MEDIUM';
+  const banner = document.getElementById('risk-banner');
+  banner.className = `risk-banner ${risk}`;
+  document.getElementById('risk-level').textContent = risk;
+  document.getElementById('risk-level').className = `risk-level ${risk}`;
+  document.getElementById('risk-summary').textContent = data.summary || '';
+
+  const conf = Math.round((data.confidence || 0.8) * 100);
+  document.getElementById('conf-fill').style.width = conf + '%';
+  document.getElementById('conf-label').textContent = conf + '%';
+  document.getElementById('hours-to-fail').textContent = data.estimated_hours_to_failure ?? '–';
+
+  // Anomalous sensors
+  const anomList = document.getElementById('anomaly-list');
+  anomList.innerHTML = '';
+  (data.anomalous_sensors || []).forEach(s => {
+    anomList.innerHTML += `
+      <div class="anomaly-item">
+        <div class="anomaly-sensor">${s.sensor}</div>
+        <div class="anomaly-reading">${s.current_value} <span style="font-size:.75rem;color:var(--text-muted)">${s.unit}</span>
+          <span style="font-size:.75rem;color:var(--red);margin-left:8px">${s.deviation}</span>
+          <span style="font-size:.7rem;color:var(--text-muted)"> (normal: ${s.normal_range})</span>
+        </div>
+        <div class="anomaly-interp">${s.interpretation}</div>
+      </div>`;
+  });
+  if (!data.anomalous_sensors?.length) anomList.innerHTML = '<div style="color:var(--text-muted);font-size:.8rem">No specific anomalies identified.</div>';
+
+  // Actions
+  const actList = document.getElementById('actions-list');
+  actList.innerHTML = '';
+  (data.recommended_actions || []).forEach(a => {
+    const prioClass = `prio-${Math.min(a.priority, 3)}`;
+    actList.innerHTML += `
+      <div class="action-item">
+        <div class="action-priority ${prioClass}">${a.priority}</div>
+        <div>
+          <div class="action-text">${a.action}</div>
+          <div class="action-meta">⏱ ${a.timeline} · 👤 ${a.responsible}</div>
+        </div>
+      </div>`;
+  });
+
+  document.getElementById('root-cause').textContent = data.root_cause_hypothesis || '–';
+  document.getElementById('failure-mode').textContent = '⚠ Predicted: ' + (data.predicted_failure_mode || '–');
+
+  // Cost
+  const ci = data.cost_impact || {};
+  const no = ci.if_no_action || {};
+  const pl = ci.if_planned_maintenance || {};
+  document.getElementById('cost-no-action').textContent = no.estimated_cost_usd ? '$' + no.estimated_cost_usd.toLocaleString() : '–';
+  document.getElementById('cost-no-action-sub').textContent = no.breakdown || `${no.estimated_downtime_hours || '–'} hours downtime`;
+  document.getElementById('cost-planned').textContent = pl.estimated_cost_usd ? '$' + pl.estimated_cost_usd.toLocaleString() : '–';
+  document.getElementById('cost-planned-sub').textContent = `${pl.scheduled_downtime_hours || '–'} hours planned downtime`;
+  document.getElementById('savings-amount').textContent = pl.savings_vs_failure ? '$' + pl.savings_vs_failure.toLocaleString() : '–';
+
+  document.getElementById('ai-timestamp').textContent =
+    `Last AI analysis: ${new Date(data.analyzed_at || Date.now()).toLocaleTimeString()} · Triggered: ${data.triggered_by || 'auto'}`;
+
+  // Persist AI results for email alerts
+  state._lastAIRisk  = data.risk_level;
+  state._predHours   = data.estimated_hours_to_failure;
+  const _planned = (data.cost_impact || {}).if_planned_maintenance || {};
+  state._lastSavings = _planned.savings_vs_failure ?? null;
+
+  // Drive timeline failure pin
+  const hoursLeft = data.estimated_hours_to_failure;
+  document.getElementById('tl-pin-fail').style.display = 'flex';
+  document.getElementById('tl-pred-time').textContent =
+    hoursLeft ? `Predicted Failure: ~${hoursLeft}h from now` : 'Predicted Failure: –';
+
+  addEvent('critical', `AI: ${risk} risk — failure in ~${hoursLeft ?? '?'}h — potential savings $${(pl.savings_vs_failure || 0).toLocaleString()}`);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// EVENT LOG
+// ═══════════════════════════════════════════════════════════════
+function clearEvents() {
+  document.getElementById('events-list').innerHTML =
+    '<div style="color:var(--text-muted);font-size:.8rem;padding:10px;text-align:center">Event log cleared</div>';
+}
+
+function addEvent(level, msg) {
+  const colors = { normal: 'var(--green)', warning: 'var(--yellow)', critical: 'var(--red)', info: 'var(--blue)' };
+  const el = document.getElementById('events-list');
+  // Clear placeholder on first real event
+  if (el.children.length === 1 && el.children[0].querySelector === undefined) {
+    el.innerHTML = '';
+  }
+  if (el.children.length === 1 && !el.children[0].classList.contains('event-item')) {
+    el.innerHTML = '';
+  }
+  const item = document.createElement('div');
+  item.className = 'event-item';
+  item.innerHTML = `
+    <div class="event-dot" style="background:${colors[level] || 'var(--text-muted)'}"></div>
+    <div>
+      <div class="event-time">${new Date().toLocaleTimeString()}</div>
+      <div class="event-msg">${msg}</div>
+    </div>`;
+  el.insertBefore(item, el.firstChild);
+  while (el.children.length > 20) el.removeChild(el.lastChild);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// WEBSOCKET
+// ═══════════════════════════════════════════════════════════════
+let ws = null;
+let wsReconnectTimer = null;
+let wsConnected = false;
+let wsRetryCount = 0;
+
+function setOfflineMode() {
+  // Backend chưa chạy → Offline mode, operator controls vẫn hoạt động
+  document.getElementById('ws-dot').style.background = 'var(--cyan)';
+  document.getElementById('ws-dot').style.animation = 'none';
+  document.getElementById('ws-status').textContent = 'Offline';
+  document.getElementById('ws-status').title =
+    'Backend chưa kết nối — Operator Controls vẫn hoạt động bình thường.\nĐể nhận live data: chạy uvicorn backend.server:app --port 8000';
+}
+
+function connectWS() {
+  // Không thử kết nối nếu mở file:// (không có backend)
+  if (location.protocol === 'file:') { setOfflineMode(); return; }
+
+  try { ws = new WebSocket(WS_URL); } catch(e) { setOfflineMode(); return; }
+
+  const connectTimeout = setTimeout(() => {
+    // Nếu 2s không kết nối được → Offline mode, không báo lỗi
+    if (!wsConnected) { setOfflineMode(); }
+  }, 2000);
+
+  ws.onopen = () => {
+    wsConnected = true;
+    wsRetryCount = 0;
+    clearTimeout(connectTimeout);
+    document.getElementById('ws-dot').style.background = 'var(--green)';
+    document.getElementById('ws-dot').style.animation = 'pulse 2s infinite';
+    document.getElementById('ws-status').textContent = 'Live';
+    document.getElementById('ws-status').title = 'WebSocket connected to backend';
+    addEvent('info', '🔌 Connected — receiving live sensor data');
+  };
+
+  ws.onclose = () => {
+    wsConnected = false;
+    clearTimeout(connectTimeout);
+    if (wsRetryCount === 0) setOfflineMode();
+    wsRetryCount++;
+    // Thử lại âm thầm mỗi 5s, không thay đổi UI
+    wsReconnectTimer = setTimeout(connectWS, 5000);
+  };
+
+  ws.onerror = () => {
+    clearTimeout(connectTimeout);
+    if (!wsConnected) setOfflineMode();
+  };
+
+  ws.onmessage = (evt) => {
+    try {
+      const data = JSON.parse(evt.data);
+      if      (data.type === 'sensor_update')     processSensorUpdate(data);
+      else if (data.type === 'ai_recommendation') processAIRecommendation(data);
+      else if (data.type === 'state_command')     handleStateCommand(data.state);
+    } catch (e) { console.warn('WS parse error', e); }
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════
+// TAB SWITCH
+// ═══════════════════════════════════════════════════════════════
+function switchTab(tab) {
+  const TABS  = ['live','timeline','ai','sensors'];
+  const PAGES = ['page-live','page-timeline','page-ai','page-sensors'];
+  document.querySelectorAll('.tab').forEach((t, i) => t.classList.toggle('active', TABS[i] === tab));
+  document.querySelectorAll('.page').forEach((p, i) => p.classList.toggle('active', PAGES[i] === `page-${tab}`));
+  if (tab === 'ai') document.getElementById('alert-badge').style.display = 'none';
+}
+
+// ═══════════════════════════════════════════════════════════════
+// OPERATOR SIMULATION (sensor state injection)
+// ═══════════════════════════════════════════════════════════════
+let _simRow = 0;
+window._sessionStart = Date.now();
+
+function makeSensorPayload(profile) {
+  _simRow++;
+  const profiles = {
+    normal:   { vibration: 2.1, temperature: 72, pressure: 6.2, flow_rate: 165 },
+    warning:  { vibration: 5.8, temperature: 88, pressure: 9.1, flow_rate: 108 },
+    critical: { vibration: 7.9, temperature: 94, pressure: 10.5, flow_rate: 87  },
+  };
+  const base = profiles[profile];
+  const noise = (v, pct) => v * (1 + (Math.random() - 0.5) * pct);
+  const sensors = { vibration: noise(base.vibration, .05), temperature: noise(base.temperature, .03),
+    pressure: noise(base.pressure, .04), flow_rate: noise(base.flow_rate, .05) };
+
+  const healthy = profile === 'normal' ? 88 : profile === 'warning' ? 52 : 18;
+
+  return {
+    type: 'sensor_update',
+    ts: new Date().toISOString(),
+    row: _simRow,
+    total: 220320,
+    machine_status: profile === 'normal' ? 'NORMAL' : profile === 'warning' ? 'BROKEN' : 'BROKEN',
+    overall_status: profile === 'normal' ? 'NORMAL' : profile === 'warning' ? 'WARNING' : 'CRITICAL',
+    health_score: noise(healthy, .05),
+    anomaly_detected: profile !== 'normal',
+    progress_pct: Math.min(_simRow / 2203, 99).toFixed(1),
+    sensors,
+  };
+}
+
+let _simInterval = null;
+
+function setNormalState()   {
+  startSimStream('normal');
+  addEvent('normal', '▶ Operating normally — all sensors within range');
+}
+function setWarningState()  {
+  startSimStream('warning');
+  addEvent('warning', '⚠ Anomaly conditions applied');
+  sendEmailAlert('WARNING');
+}
+function setCriticalState() {
+  startSimStream('critical');
+  addEvent('critical', '🔴 Critical conditions applied');
+  sendEmailAlert('CRITICAL');
+}
+
+async function sendEmailAlert(level) {
+  const p = state.latestPayload;
+  const sensors = p?.sensors || { vibration: 5.8, temperature: 88, pressure: 9.1, flow_rate: 108 };
+  const health  = p?.health_score ?? (level === 'CRITICAL' ? 18 : 52);
+
+  const body = {
+    level,
+    health_score: Math.round(health),
+    sensor_summary: {
+      'Vibration':   (sensors.vibration   ?? 0).toFixed(2) + ' mm/s',
+      'Temperature': (sensors.temperature ?? 0).toFixed(1) + ' °C',
+      'Pressure':    (sensors.pressure    ?? 0).toFixed(2) + ' bar',
+      'Flow Rate':   (sensors.flow_rate   ?? 0).toFixed(1) + ' m³/h',
+    },
+    message: level === 'CRITICAL'
+      ? 'Multiple sensors in critical state — unplanned shutdown risk imminent.'
+      : 'Sensor readings outside normal bounds — monitoring closely.',
+    ai_risk_level: state._lastAIRisk ?? null,
+    estimated_hours_to_failure: state._predHours ?? null,
+    estimated_savings: state._lastSavings ?? null,
+  };
+
+  try {
+    const resp = await fetch(API_URL + '/alert', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const result = await resp.json();
+    if (result.status === 'sent') {
+      addEvent('info', `📧 Alert email sent (${level})`);
+    } else if (result.status === 'skipped') {
+      console.info('[Alert] Skipped:', result.reason);
+    }
+  } catch (e) {
+    console.warn('[Alert] Backend offline, email not sent');
+  }
+}
+
+function startSimStream(profile) {
+  if (_simInterval) clearInterval(_simInterval);
+  processSensorUpdate(makeSensorPayload(profile));
+  _simInterval = setInterval(() => processSensorUpdate(makeSensorPayload(profile)), 500);
+}
+
+async function runAIAnalysis() {
+  if (!state.latestPayload) {
+    setWarningState();
+    await new Promise(r => setTimeout(r, 600));
+  }
+  const p = state.latestPayload;
+  const snapshot = {
+    timestamp: p.ts || new Date().toISOString(),
+    machine_status: p.machine_status || 'BROKEN',
+    health_score: p.health_score || 45,
+    overall_status: p.overall_status || 'WARNING',
+    sensors: p.sensors || { vibration: 5.8, temperature: 88, pressure: 9.1, flow_rate: 108 },
+  };
+
+  // Try live backend first, fallback to pre-loaded analysis
+  try {
+    const resp = await fetch(API_URL + '/analyze', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ snapshot })
+    });
+    if (!resp.ok) throw new Error('API error');
+    const ai = await resp.json();
+    ai.type = 'ai_recommendation';
+    ai.triggered_by = 'operator';
+    processAIRecommendation(ai);
+  } catch (e) {
+    // Backend offline — use pre-loaded analysis result
+    processAIRecommendation({
+      type: 'ai_recommendation', triggered_by: 'operator',
+      risk_level: 'HIGH', confidence: 0.87,
+      summary: 'Vibration and temperature readings indicate accelerating bearing degradation. Immediate inspection recommended to prevent unplanned shutdown.',
+      anomalous_sensors: [
+        { sensor: 'vibration', current_value: 5.8, unit: 'mm/s', normal_range: '0–4.5', deviation: '+29%',
+          interpretation: 'Elevated vibration suggests mechanical imbalance or early-stage bearing wear. Pattern consistent with lubrication degradation.' },
+        { sensor: 'temperature', current_value: 88.4, unit: '°C', normal_range: '60–85°C', deviation: '+4.0%',
+          interpretation: 'Thermal rise co-incident with vibration increase confirms bearing friction escalation.' },
+        { sensor: 'flow_rate', current_value: 108, unit: 'm³/h', normal_range: '120–200', deviation: '-10%',
+          interpretation: 'Reduced flow rate suggests partial seal wear or inlet restriction.' }
+      ],
+      root_cause_hypothesis: 'Bearing wear due to lubrication breakdown or contamination ingress. Consistent with pumping abrasive fluid without adequate filter maintenance.',
+      estimated_hours_to_failure: 18,
+      predicted_failure_mode: 'Complete bearing seizure leading to shaft scoring and mechanical seal failure',
+      recommended_actions: [
+        { priority: 1, action: 'Schedule emergency bearing inspection within next 4-hour shift window', timeline: 'Within 4 hours', responsible: 'Maintenance Team A' },
+        { priority: 2, action: 'Requisition replacement bearing kit (SKF 6310-2RS) and mechanical seal set', timeline: 'Within 2 hours', responsible: 'Procurement / Stores' },
+        { priority: 3, action: 'Reduce pump operating load to 80% of rated capacity as precautionary measure', timeline: 'Immediately', responsible: 'Control Room Operator' },
+        { priority: 3, action: 'Inspect and replace inlet strainer if pressure differential exceeds 0.5 bar', timeline: 'Next maintenance window', responsible: 'Field Technician' },
+      ],
+      cost_impact: {
+        if_no_action: { estimated_downtime_hours: 48, estimated_cost_usd: 524000,
+          breakdown: '$432K lost production (48h × $9K/h) + $42K emergency repair + $50K environmental/regulatory' },
+        if_planned_maintenance: { estimated_cost_usd: 10500, scheduled_downtime_hours: 6, savings_vs_failure: 513500 }
+      },
+      analyzed_at: new Date().toISOString(), next_check_in_minutes: 15
+    });
+  }
+  switchTab('ai');
+}
+
+function toggleControls() {
+  const c = document.getElementById('ctrl-panel');
+  c.style.display = c.style.display === 'none' ? 'flex' : 'none';
+}
+
+// ═══════════════════════════════════════════════════════════════
+// REMOTE STATE COMMAND (from presenter controller / API)
+// ═══════════════════════════════════════════════════════════════
+function handleStateCommand(state) {
+  switch (state) {
+    case 'normal':     setNormalState();   break;
+    case 'warning':    setWarningState();  break;
+    case 'critical':   setCriticalState(); break;
+    case 'trigger_ai': runAIAnalysis();    break;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// SENSOR STATUS PAGE — Arc Gauges + Threshold Bars
+// ═══════════════════════════════════════════════════════════════
+
+const _GAUGE_R      = 62;
+const _GAUGE_CX     = 80;
+const _GAUGE_CY     = 88;
+const _GAUGE_CIRCUM = 2 * Math.PI * _GAUGE_R;           // 389.56
+const _GAUGE_ARC    = _GAUGE_CIRCUM * (270 / 360);       // 292.17  (270° span)
+const _GAUGE_GAP    = _GAUGE_CIRCUM - _GAUGE_ARC;        // 97.39
+
+const SENSOR_GAUGE_CFG = {
+  vibration:   { label: 'Vibration',   unit: 'mm/s', icon: '⚡', color: '#06b6d4',
+                 min: 0,   warnVal: 4.5, critVal: 6.5, max: 10,  higherIsBad: true  },
+  temperature: { label: 'Temperature', unit: '°C',   icon: '🌡', color: '#ef4444',
+                 min: 50,  warnVal: 85,  critVal: 95,  max: 120, higherIsBad: true  },
+  pressure:    { label: 'Pressure',    unit: 'bar',  icon: '📊', color: '#f59e0b',
+                 min: 0,   warnVal: 8,   critVal: 10,  max: 14,  higherIsBad: true  },
+  flow_rate:   { label: 'Flow Rate',   unit: 'm³/h', icon: '💧', color: '#3b82f6',
+                 min: 60,  warnVal: 120, critVal: 100, max: 220, higherIsBad: false },
+};
+
+const _sensorHist  = { vibration:[], temperature:[], pressure:[], flow_rate:[] };
+const _sensorStats = {};
+for (const k of Object.keys(SENSOR_GAUGE_CFG))
+  _sensorStats[k] = { min: Infinity, max: -Infinity, sum: 0, n: 0 };
+
+function _gpct(val, min, max) { return Math.max(0, Math.min(1, (val - min) / (max - min))); }
+function _gcolor(s) { return s === 'CRITICAL' ? '#ef4444' : s === 'WARNING' ? '#f59e0b' : '#10b981'; }
+
+// Build dasharray for a zone segment [pctStart → pctEnd] of the 270° arc
+function _zoneDA(p0, p1) {
+  const arcL = _GAUGE_ARC;
+  const gap  = (p0 * arcL).toFixed(2);
+  const dash = ((p1 - p0) * arcL).toFixed(2);
+  const rest = (_GAUGE_CIRCUM - p0 * arcL - (p1 - p0) * arcL).toFixed(2);
+  if (p0 === 0) return `${dash} ${rest}`;
+  return `0 ${gap} ${dash} ${rest}`;
+}
+
+// Compute zone percentages for a sensor config
+function _zones(cfg) {
+  if (cfg.higherIsBad) {
+    const w = _gpct(cfg.warnVal, cfg.min, cfg.max);
+    const c = _gpct(cfg.critVal, cfg.min, cfg.max);
+    return { g:[0,w], y:[w,c], r:[c,1] };
+  } else {
+    const c = _gpct(cfg.critVal, cfg.min, cfg.max);
+    const w = _gpct(cfg.warnVal, cfg.min, cfg.max);
+    return { r:[0,c], y:[c,w], g:[w,1] };
+  }
+}
+
+function buildGaugeCard(key, cfg) {
+  const z = _zones(cfg);
+  const W=160, H=128, rot=`rotate(135 ${_GAUGE_CX} ${_GAUGE_CY})`;
+  const ca = `cx="${_GAUGE_CX}" cy="${_GAUGE_CY}" r="${_GAUGE_R}" fill="none" stroke-width="13" stroke-linecap="round"`;
+  const svg = `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:100%;overflow:visible">
+  <defs>
+    <filter id="fg${key}" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="3" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <circle ${ca} stroke="#1f2937" stroke-dasharray="${_GAUGE_ARC.toFixed(2)} ${_GAUGE_GAP.toFixed(2)}" transform="${rot}"/>
+  <circle ${ca} stroke="#10b981" stroke-opacity=".28" stroke-dasharray="${_zoneDA(...z.g)}" transform="${rot}"/>
+  <circle ${ca} stroke="#f59e0b" stroke-opacity=".28" stroke-dasharray="${_zoneDA(...z.y)}" transform="${rot}"/>
+  <circle ${ca} stroke="#ef4444" stroke-opacity=".28" stroke-dasharray="${_zoneDA(...z.r)}" transform="${rot}"/>
+  <circle id="gf-${key}" ${ca} stroke="#10b981" stroke-dasharray="0 ${_GAUGE_CIRCUM.toFixed(2)}" transform="${rot}"
+    style="transition:stroke-dasharray .45s ease,stroke .4s ease" filter="url(#fg${key})"/>
+  <circle id="gp-${key}" cx="${_GAUGE_CX}" cy="${_GAUGE_CY - _GAUGE_R}" r="6"
+    fill="#10b981" stroke="var(--bg)" stroke-width="2.5" opacity="0"
+    style="transition:cx .45s ease,cy .45s ease,fill .4s ease,opacity .3s ease"/>
+  <text id="gv-${key}" x="${_GAUGE_CX}" y="${_GAUGE_CY - 4}"
+    text-anchor="middle" font-family="system-ui,sans-serif"
+    font-size="20" font-weight="700" fill="white">–</text>
+  <text x="${_GAUGE_CX}" y="${_GAUGE_CY + 14}"
+    text-anchor="middle" font-family="system-ui,sans-serif"
+    font-size="10" fill="#6b7280">${cfg.unit}</text>
+  </svg>`;
+
+  return `<div class="gauge-card" id="gc-${key}">
+    <div class="gauge-card-label">${cfg.icon} ${cfg.label}</div>
+    <div class="gauge-svg-wrap">${svg}</div>
+    <div class="gauge-chip badge-normal" id="gchip-${key}">NORMAL</div>
+  </div>`;
+}
+
+function updateGauge(key, value, status) {
+  const cfg = SENSOR_GAUGE_CFG[key]; if (!cfg) return;
+  const pct   = cfg.higherIsBad ? _gpct(value, cfg.min, cfg.max) : 1 - _gpct(value, cfg.min, cfg.max);
+  const color = _gcolor(status);
+  const filled = pct * _GAUGE_ARC;
+
+  const fill = document.getElementById(`gf-${key}`);
+  if (fill) {
+    fill.setAttribute('stroke-dasharray', `${filled.toFixed(2)} ${(_GAUGE_CIRCUM - filled).toFixed(2)}`);
+    fill.setAttribute('stroke', color);
+  }
+
+  const ptr = document.getElementById(`gp-${key}`);
+  if (ptr) {
+    const rad = ((135 + pct * 270) * Math.PI) / 180;
+    ptr.setAttribute('cx', (_GAUGE_CX + _GAUGE_R * Math.cos(rad)).toFixed(2));
+    ptr.setAttribute('cy', (_GAUGE_CY + _GAUGE_R * Math.sin(rad)).toFixed(2));
+    ptr.setAttribute('fill', color);
+    ptr.setAttribute('opacity', '1');
+  }
+
+  const vEl = document.getElementById(`gv-${key}`);
+  if (vEl) vEl.textContent = value.toFixed(key === 'flow_rate' ? 0 : 1);
+
+  const chip = document.getElementById(`gchip-${key}`);
+  if (chip) {
+    chip.className = `gauge-chip badge-${status === 'CRITICAL' ? 'critical' : status === 'WARNING' ? 'warning' : 'normal'}`;
+    chip.textContent = status;
+  }
+
+  const card = document.getElementById(`gc-${key}`);
+  if (card) card.className = `gauge-card${status === 'CRITICAL' ? ' status-critical' : status === 'WARNING' ? ' status-warning' : ''}`;
+}
+
+function buildSensorRow(key, cfg) {
+  const z = _zones(cfg);
+  // Zone bar percentages
+  const gL = (z.g[0]*100).toFixed(1), gW = ((z.g[1]-z.g[0])*100).toFixed(1);
+  const yL = (z.y[0]*100).toFixed(1), yW = ((z.y[1]-z.y[0])*100).toFixed(1);
+  const rL = (z.r[0]*100).toFixed(1), rW = ((z.r[1]-z.r[0])*100).toFixed(1);
+
+  const warnRange = cfg.higherIsBad ? `< ${cfg.warnVal}` : `> ${cfg.warnVal}`;
+  const critRange = cfg.higherIsBad ? `${cfg.warnVal}–${cfg.critVal}` : `${cfg.critVal}–${cfg.warnVal}`;
+  const dangerZone= cfg.higherIsBad ? `> ${cfg.critVal}` : `< ${cfg.critVal}`;
+
+  return `<div class="sensor-row">
+    <div class="srow-header">
+      <div class="srow-name" style="color:${cfg.color}">${cfg.icon} ${cfg.label}</div>
+      <div class="srow-right">
+        <span class="trend-arrow" id="sa-${key}" style="color:var(--text-muted)">→</span>
+        <span class="sensor-badge badge-normal" id="sb-${key}">NORMAL</span>
+        <span class="srow-value" id="sv-${key}" style="color:${cfg.color}">–</span>
+        <span class="srow-unit">${cfg.unit}</span>
+      </div>
+    </div>
+    <div class="threshold-track">
+      <div class="tzone g" style="left:${gL}%;width:${gW}%;border-radius:5px"></div>
+      <div class="tzone y" style="left:${yL}%;width:${yW}%"></div>
+      <div class="tzone r" style="left:${rL}%;width:${rW}%;border-radius:5px"></div>
+      <div class="tptr" id="sp-${key}" style="left:2%;color:var(--green)"></div>
+    </div>
+    <div class="srow-zones">
+      <span class="zone-tag"><span class="zone-dot" style="background:#10b981"></span>Normal: ${cfg.unit} ${warnRange}</span>
+      <span class="zone-tag"><span class="zone-dot" style="background:#f59e0b"></span>Warning: ${critRange}</span>
+      <span class="zone-tag"><span class="zone-dot" style="background:#ef4444"></span>Critical: ${dangerZone}</span>
+    </div>
+    <div class="srow-meta" style="margin-top:6px">
+      <span>Session min: <b id="sn-${key}">–</b></span>
+      <span>Max: <b id="sx-${key}">–</b></span>
+      <span>Avg: <b id="sg-${key}">–</b></span>
+    </div>
+  </div>`;
+}
+
+function updateSensorRow(key, value, status) {
+  const cfg = SENSOR_GAUGE_CFG[key]; if (!cfg) return;
+  const st = _sensorStats[key];
+  st.min = Math.min(st.min === Infinity ? value : st.min, value);
+  st.max = Math.max(st.max === -Infinity ? value : st.max, value);
+  st.sum += value; st.n++;
+
+  const pct   = _gpct(value, cfg.min, cfg.max) * 100;
+  const color = _gcolor(status);
+  const dp    = key === 'flow_rate' ? 0 : 1;
+  const fmt   = v => (v === Infinity || v === -Infinity) ? '–' : v.toFixed(dp) + ' ' + cfg.unit;
+
+  const ptr = document.getElementById(`sp-${key}`);
+  if (ptr) { ptr.style.left = pct.toFixed(1) + '%'; ptr.style.color = color; }
+
+  const vEl = document.getElementById(`sv-${key}`);
+  if (vEl) { vEl.textContent = value.toFixed(dp); vEl.style.color = color; }
+
+  const badge = document.getElementById(`sb-${key}`);
+  if (badge) {
+    badge.className = `sensor-badge badge-${status === 'CRITICAL' ? 'critical' : status === 'WARNING' ? 'warning' : 'normal'}`;
+    badge.textContent = status;
+  }
+
+  // Trend arrow from last 5 readings
+  const hist = _sensorHist[key];
+  hist.push(value); if (hist.length > 5) hist.shift();
+  const arrow = document.getElementById(`sa-${key}`);
+  if (arrow && hist.length >= 3) {
+    const delta = hist[hist.length-1] - hist[0];
+    const thr   = (cfg.max - cfg.min) * 0.012;
+    if (delta >  thr) { arrow.textContent = '↑'; arrow.style.color = cfg.higherIsBad ? '#ef4444' : '#10b981'; }
+    else if (delta < -thr) { arrow.textContent = '↓'; arrow.style.color = cfg.higherIsBad ? '#10b981' : '#ef4444'; }
+    else { arrow.textContent = '→'; arrow.style.color = 'var(--text-muted)'; }
+  }
+
+  const mn = document.getElementById(`sn-${key}`); if (mn) mn.textContent = fmt(st.min);
+  const mx = document.getElementById(`sx-${key}`); if (mx) mx.textContent = fmt(st.max);
+  const av = document.getElementById(`sg-${key}`); if (av) av.textContent = st.n ? (st.sum/st.n).toFixed(dp) + ' ' + cfg.unit : '–';
+}
+
+// ─── Individual Sensor Groups ────────────────────────────────
+const SENSOR_GROUPS_MAP = {
+  vibration:   { label: '⚡ Vibration',   color: '#06b6d4', sensors: Array.from({length:22}, (_,i)=>`sensor_${String(i).padStart(2,'0')}`)    },
+  temperature: { label: '🌡 Temperature', color: '#ef4444', sensors: Array.from({length:10}, (_,i)=>`sensor_${String(i+22).padStart(2,'0')}`) },
+  pressure:    { label: '📊 Pressure',    color: '#f59e0b', sensors: Array.from({length:10}, (_,i)=>`sensor_${String(i+32).padStart(2,'0')}`) },
+  flow_rate:   { label: '💧 Flow Rate',   color: '#3b82f6', sensors: Array.from({length:10}, (_,i)=>`sensor_${String(i+42).padStart(2,'0')}`) },
+};
+
+// Deterministic per-sensor noise offset (consistent across renders)
+const _sensorOffsets = {};
+(function _initOffsets() {
+  for (const [grp, {sensors}] of Object.entries(SENSOR_GROUPS_MAP)) {
+    sensors.forEach((s, i) => {
+      _sensorOffsets[s] = Math.sin(i * 137.508 + grp.charCodeAt(0)) * 0.055;
+    });
+  }
+})();
+
+let _selectedGroup = '';
+let _lastGroupValues = {}; // {vibration: {value, status}, ...}
+
+function selectSensorGroup(key) {
+  _selectedGroup = key;
+  const empty  = document.getElementById('sensor-detail-empty');
+  const panel  = document.getElementById('sensor-detail-panel');
+  if (!key) { empty.style.display='block'; panel.style.display='none'; return; }
+  empty.style.display = 'none';
+  panel.style.display = 'block';
+  const g = SENSOR_GROUPS_MAP[key];
+  document.getElementById('detail-group-label').textContent =
+    `${g.label} — ${g.sensors.length} sensors`;
+  // Render with last known value
+  const cached = _lastGroupValues[key];
+  if (cached) renderSensorHeatmap(key, cached.value, cached.status);
+  else renderSensorHeatmap(key, SENSOR_GAUGE_CFG[key].warnVal * 0.85, 'NORMAL');
+}
+
+function renderSensorHeatmap(key, groupAvg, status) {
+  const grid = document.getElementById('sensor-heatmap');
+  const cfg  = SENSOR_GAUGE_CFG[key];
+  const grp  = SENSOR_GROUPS_MAP[key];
+  if (!grid || !cfg || !grp) return;
+
+  const dp = key === 'flow_rate' ? 0 : 2;
+  const cells = grp.sensors.map(sId => {
+    const offset = _sensorOffsets[sId] || 0;
+    const val    = Math.max(cfg.min, Math.min(cfg.max, groupAvg * (1 + offset)));
+    const sStatus = cfg.higherIsBad
+      ? (val >= cfg.critVal ? 'CRITICAL' : val >= cfg.warnVal ? 'WARNING' : 'NORMAL')
+      : (val <= cfg.critVal ? 'CRITICAL' : val <= cfg.warnVal ? 'WARNING' : 'NORMAL');
+    const color   = _gcolor(sStatus);
+    const pct     = _gpct(val, cfg.min, cfg.max) * 100;
+    const dev     = groupAvg > 0 ? ((val - groupAvg) / groupAvg * 100) : 0;
+    const devStr  = (dev >= 0 ? '+' : '') + dev.toFixed(1) + '%';
+    const bgMap   = { NORMAL: 'rgba(16,185,129,.08)', WARNING: 'rgba(245,158,11,.13)', CRITICAL: 'rgba(239,68,68,.18)' };
+    return { sId, val, sStatus, color, pct, devStr, bgMap: bgMap[sStatus] || bgMap.NORMAL, dp };
+  });
+
+  // Batch update (avoid full re-render if cells already exist)
+  if (grid.children.length === grp.sensors.length) {
+    cells.forEach((c, i) => {
+      const cell = grid.children[i];
+      cell.style.background    = c.bgMap;
+      cell.style.borderColor   = c.color;
+      cell.querySelector('.sheat-val').textContent  = c.val.toFixed(c.dp);
+      cell.querySelector('.sheat-val').style.color  = c.color;
+      cell.querySelector('.sheat-fill').style.width = Math.min(c.pct,100).toFixed(1)+'%';
+      cell.querySelector('.sheat-fill').style.background = c.color;
+      cell.querySelector('.sheat-dev').textContent  = c.devStr;
+      cell.querySelector('.sheat-dev').style.color  = c.color;
+    });
+  } else {
+    grid.innerHTML = cells.map(c => `
+      <div class="sheat-cell" style="background:${c.bgMap};border-color:${c.color}">
+        <div class="sheat-id">${c.sId}</div>
+        <div class="sheat-val" style="color:${c.color}">${c.val.toFixed(c.dp)}</div>
+        <div class="sheat-unit">${cfg.unit}</div>
+        <div class="sheat-bar"><div class="sheat-fill" style="width:${Math.min(c.pct,100).toFixed(1)}%;background:${c.color}"></div></div>
+        <div class="sheat-dev" style="color:${c.color}">${c.devStr}</div>
+      </div>`).join('');
+  }
+}
+
+function initSensorPage() {
+  const grid = document.getElementById('gauge-grid');
+  const rows = document.getElementById('sensor-rows');
+  if (!grid || !rows) return;
+  for (const [k, cfg] of Object.entries(SENSOR_GAUGE_CFG)) {
+    grid.insertAdjacentHTML('beforeend', buildGaugeCard(k, cfg));
+    rows.insertAdjacentHTML('beforeend', buildSensorRow(k, cfg));
+  }
+}
+
+function updateSensorPage(data) {
+  const sensors = data.sensors || {};
+  const trends  = data.trends  || {};
+  for (const [key, cfg] of Object.entries(SENSOR_GAUGE_CFG)) {
+    const val = trends[key]?.current ?? sensors[key];
+    if (val === undefined) continue;
+    const ts = trends[key]?.status;
+    const status = ts ?? (cfg.higherIsBad
+      ? (val >= cfg.critVal ? 'CRITICAL' : val >= cfg.warnVal ? 'WARNING' : 'NORMAL')
+      : (val <= cfg.critVal ? 'CRITICAL' : val <= cfg.warnVal ? 'WARNING' : 'NORMAL'));
+    updateGauge(key, val, status);
+    updateSensorRow(key, val, status);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// CLOCK
+// ═══════════════════════════════════════════════════════════════
+setInterval(() => {
+  document.getElementById('clock').textContent = new Date().toLocaleTimeString();
+}, 1000);
+
+// ═══════════════════════════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════════════════════════
+initSensorPage();
+connectWS();
+setTimeout(() => setNormalState(), 800);
+</script>
+</body>
+</html>

@@ -1,0 +1,55 @@
+version: "3.9"
+
+services:
+  # ── Mosquitto MQTT Broker ──────────────────────────────────
+  mosquitto:
+    image: eclipse-mosquitto:2.0
+    container_name: pump-mqtt
+    ports:
+      - "1883:1883"
+      - "9001:9001"   # WebSocket (optional)
+    volumes:
+      - ./mosquitto.conf:/mosquitto/config/mosquitto.conf
+      - mosquitto-data:/mosquitto/data
+      - mosquitto-log:/mosquitto/log
+    restart: unless-stopped
+
+  # ── AI Backend (FastAPI) ───────────────────────────────────
+  backend:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.backend
+    container_name: pump-backend
+    ports:
+      - "8000:8000"
+    environment:
+      - AI_PROVIDER=${AI_PROVIDER:-claude}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - MQTT_HOST=mosquitto
+      - MQTT_PORT=1883
+    depends_on:
+      - mosquitto
+    restart: unless-stopped
+    volumes:
+      - ../dashboard:/app/dashboard:ro
+
+  # ── Node-RED ───────────────────────────────────────────────
+  nodered:
+    image: nodered/node-red:3.1
+    container_name: pump-nodered
+    ports:
+      - "1880:1880"
+    volumes:
+      - nodered-data:/data
+      - ../nodered/flows.json:/data/flows.json
+    environment:
+      - TZ=Asia/Ho_Chi_Minh
+    depends_on:
+      - mosquitto
+    restart: unless-stopped
+
+volumes:
+  mosquitto-data:
+  mosquitto-log:
+  nodered-data:
