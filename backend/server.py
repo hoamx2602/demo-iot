@@ -176,19 +176,23 @@ class MQTTBridge:
     """Subscribes to MQTT and pushes messages to WebSocket clients."""
 
     def __init__(self):
-        self.client = mqtt.Client(client_id="backend-bridge", protocol=mqtt.MQTTv311)
+        self.client = mqtt.Client(
+            mqtt.CallbackAPIVersion.VERSION2,
+            client_id="backend-bridge",
+            protocol=mqtt.MQTTv311,
+        )
         self.client.on_connect = self._on_connect
         self.client.on_message = self._on_message
         self.loop: Optional[asyncio.AbstractEventLoop] = None
         self._last_analysis_time = 0.0
         self._analysis_cooldown = 10.0  # seconds between AI calls
 
-    def _on_connect(self, client, userdata, flags, rc):
-        if rc == 0:
-            print(f"[MQTT Bridge] Connected to {MQTT_HOST}:{MQTT_PORT}")
+    def _on_connect(self, client, userdata, connect_flags, reason_code, properties):
+        if not reason_code.is_failure:
+            print(f"[MQTT Bridge] ✅ Connected to {MQTT_HOST}:{MQTT_PORT}")
             client.subscribe(TOPIC_SENSORS, qos=1)
         else:
-            print(f"[MQTT Bridge] Connection failed: rc={rc}")
+            print(f"[MQTT Bridge] ❌ Connection failed: {reason_code}")
 
     def _on_message(self, client, userdata, msg):
         if self.loop is None:

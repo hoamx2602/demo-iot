@@ -153,14 +153,18 @@ class PumpReplay:
         return round(float(np.mean(scores)), 1) if scores else 80.0
 
     def setup_mqtt(self) -> mqtt.Client:
-        client = mqtt.Client(client_id="pump-replay", protocol=mqtt.MQTTv311)
+        client = mqtt.Client(
+            mqtt.CallbackAPIVersion.VERSION2,
+            client_id="pump-replay",
+            protocol=mqtt.MQTTv311,
+        )
 
-        def on_connect(c, userdata, flags, rc):
-            if rc == 0:
-                print(f"[MQTT] Kết nối thành công → {MQTT_HOST}:{MQTT_PORT}")
+        def on_connect(c, userdata, connect_flags, reason_code, properties):
+            if not reason_code.is_failure:
+                print(f"[MQTT] ✅ Kết nối thành công → {MQTT_HOST}:{MQTT_PORT}")
                 c.subscribe(TOPIC_CONTROL)
             else:
-                print(f"[MQTT] Kết nối thất bại, code={rc}")
+                print(f"[MQTT] ❌ Kết nối thất bại: {reason_code}")
 
         def on_message(c, userdata, msg):
             cmd = msg.payload.decode().strip().upper()
