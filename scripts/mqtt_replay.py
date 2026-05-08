@@ -253,6 +253,7 @@ def main():
     parser.add_argument("--config", default="data/sensor_groups.json",  help="Config JSON")
     parser.add_argument("--row-start",       type=int, default=0,       help="Bắt đầu từ row này")
     parser.add_argument("--start-at-anomaly", action="store_true",      help="Bắt đầu từ điểm anomaly đầu tiên")
+    parser.add_argument("--anomaly-offset",  type=int, default=200,     help="Số rows lùi trước điểm anomaly (0=bắt đầu đúng tại BROKEN)")
     parser.add_argument("--compression",     type=int, default=TIME_COMPRESSION, help="Time compression factor")
     parser.add_argument("--quiet", action="store_true",                 help="Giảm log output")
     args = parser.parse_args()
@@ -271,9 +272,10 @@ def main():
 
     if args.start_at_anomaly:
         anomaly_row = replay.config["demo"]["first_anomaly_row"]
-        # Lùi 200 rows để có context NORMAL trước
-        replay.row_ptr = max(0, anomaly_row - 200)
-        print(f"[DEMO] Bắt đầu từ row {replay.row_ptr} (200 rows trước điểm anomaly)")
+        offset = args.anomaly_offset
+        replay.row_ptr = max(0, anomaly_row - offset)
+        label = f"{offset} rows trước điểm anomaly" if offset > 0 else "đúng tại điểm BROKEN"
+        print(f"[DEMO] Bắt đầu từ row {replay.row_ptr} ({label})")
 
     replay.run(compression=args.compression)
 

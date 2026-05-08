@@ -209,7 +209,8 @@ class MQTTBridge:
             )
 
             # Auto-trigger AI analysis on anomaly (with cooldown)
-            if payload.get("anomaly_detected") or payload.get("overall_status") in ("WARNING", "CRITICAL"):
+            _status = payload.get("overall_status") or payload.get("machine_status", "NORMAL")
+            if payload.get("anomaly_detected") or _status in ("WARNING", "CRITICAL", "BROKEN"):
                 now = time.time()
                 if now - self._last_analysis_time > self._analysis_cooldown:
                     self._last_analysis_time = now
