@@ -1158,6 +1158,31 @@ let wsReconnectTimer = null;
 let wsConnected = false;
 let wsRetryCount = 0;
 
+// ─── Waiting for data state ───────────────────────────────────
+function showWaitingState() {
+  // Blank out all sensor values — no fake data shown until real WS message arrives
+  const groups = ['vibration', 'temperature', 'pressure', 'flow_rate'];
+  groups.forEach(name => {
+    const valEl = document.getElementById(`val-${name}`);
+    if (valEl) valEl.textContent = '–';
+    const badge = document.getElementById(`badge-${name}`);
+    if (badge) { badge.textContent = '–'; badge.className = 'sensor-badge'; badge.style.background = ''; badge.style.color = 'var(--text-muted)'; }
+    const card = document.getElementById(`card-${name}`);
+    if (card) card.style.setProperty('--sensor-color', 'var(--border)');
+  });
+
+  // Health ring
+  updateHealthRing(0);
+  const statusEl = document.getElementById('overall-status');
+  if (statusEl) { statusEl.textContent = '⏳ Waiting for sensor data…'; statusEl.style.color = 'var(--text-muted)'; }
+  const subEl = document.getElementById('health-sub');
+  if (subEl) subEl.textContent = 'Start mqtt_replay.py or use Operator Controls to stream sensor data.';
+  const badgeNormal = document.getElementById('badge-normal');
+  if (badgeNormal) { badgeNormal.textContent = 'NO DATA'; badgeNormal.className = 'sensor-badge'; badgeNormal.style.background = 'rgba(156,163,175,.1)'; badgeNormal.style.color = 'var(--text-muted)'; }
+  const timeEl = document.getElementById('data-time');
+  if (timeEl) timeEl.textContent = '';
+}
+
 function setOfflineMode() {
   // Backend chưa chạy → Offline mode, operator controls vẫn hoạt động
   document.getElementById('ws-dot').style.background = 'var(--cyan)';
@@ -1808,8 +1833,8 @@ setInterval(() => {
 // INIT
 // ═══════════════════════════════════════════════════════════════
 initSensorPage();
+showWaitingState();
 connectWS();
-setTimeout(() => setNormalState(), 800);
 </script>
 </body>
 </html>

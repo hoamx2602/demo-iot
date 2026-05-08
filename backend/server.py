@@ -566,6 +566,10 @@ class AlertRequest(BaseModel):
 
 
 def _build_email_html(req: AlertRequest) -> str:
+    # Đọc PUBLIC_URL mỗi lần gọi (có thể được set sau khi server khởi động)
+    _public_url = os.getenv("PUBLIC_URL", "http://localhost:8000").rstrip("/")
+    _dashboard_url = _public_url + "/dashboard/"
+
     level_color = "#ef4444" if req.level == "CRITICAL" else "#f59e0b"
     level_bg    = "#1a0a0a" if req.level == "CRITICAL" else "#1a1400"
     icon        = "🔴" if req.level == "CRITICAL" else "⚠️"
@@ -635,7 +639,7 @@ def _build_email_html(req: AlertRequest) -> str:
 
   <!-- CTA -->
   <div style="text-align:center;margin-top:20px">
-    <a href="http://localhost:8000/dashboard/"
+    <a href="{_dashboard_url}"
        style="display:inline-block;background:#06b6d4;color:#000;font-weight:700;font-size:13px;
               padding:10px 24px;border-radius:6px;text-decoration:none">
       Open Dashboard →
