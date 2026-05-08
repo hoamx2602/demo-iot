@@ -21,6 +21,7 @@ Environment variables (đặt trong .env):
 import asyncio
 import json
 import os
+import ssl
 import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -43,6 +44,9 @@ OPENAI_API_KEY    = os.getenv("OPENAI_API_KEY", "")
 GEMINI_API_KEY    = os.getenv("GEMINI_API_KEY", "")
 MQTT_HOST         = os.getenv("MQTT_HOST", "localhost")
 MQTT_PORT         = int(os.getenv("MQTT_PORT", "1883"))
+MQTT_USERNAME     = os.getenv("MQTT_USERNAME", "")
+MQTT_PASSWORD     = os.getenv("MQTT_PASSWORD", "")
+MQTT_TLS          = os.getenv("MQTT_TLS", "false").lower() in ("true", "1", "yes")
 TOPIC_SENSORS     = "pump/sensors"
 
 RESEND_API_KEY    = os.getenv("RESEND_API_KEY", "")
@@ -231,8 +235,15 @@ class MQTTBridge:
     def start(self, loop: asyncio.AbstractEventLoop):
         self.loop = loop
         try:
+            if MQTT_USERNAME:
+                self.client.username_pw_set(MQTT_USERNAME, MQTT_PASSWORD)
+            use_tls = MQTT_TLS or MQTT_PORT == 8883
+            if use_tls:
+                self.client.tls_set(tls_version=ssl.PROTOCOL_TLS_CLIENT)
+                print(f"[MQTT Bridge] TLS enabled")
             self.client.connect(MQTT_HOST, MQTT_PORT, keepalive=60)
             self.client.loop_start()
+            print(f"[MQTT Bridge] Connecting to {MQTT_HOST}:{MQTT_PORT} (TLS={use_tls})")
         except Exception as e:
             print(f"[MQTT Bridge] Warning: Could not connect: {e}")
             print("  Dashboard will work, but won't receive live MQTT data.")

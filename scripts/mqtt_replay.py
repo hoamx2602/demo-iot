@@ -17,6 +17,7 @@ Requires:
 import argparse
 import json
 import os
+import ssl
 import sys
 import time
 from datetime import datetime, timezone
@@ -31,8 +32,11 @@ except ImportError:
     sys.exit(1)
 
 # ─── Config ─────────────────────────────────────────────────────────────────
-MQTT_HOST = os.getenv("MQTT_HOST", "localhost")
-MQTT_PORT = int(os.getenv("MQTT_PORT", "1883"))
+MQTT_HOST     = os.getenv("MQTT_HOST", "localhost")
+MQTT_PORT     = int(os.getenv("MQTT_PORT", "1883"))
+MQTT_USERNAME = os.getenv("MQTT_USERNAME", "")
+MQTT_PASSWORD = os.getenv("MQTT_PASSWORD", "")
+MQTT_TLS      = os.getenv("MQTT_TLS", "false").lower() in ("true", "1", "yes")
 TOPIC_SENSORS = "pump/sensors"
 TOPIC_STATUS  = "pump/status"
 TOPIC_CONTROL = "pump/control"   # subscribe để nhận lệnh pause/resume/jump
@@ -180,11 +184,17 @@ class PumpReplay:
         client.on_connect = on_connect
         client.on_message = on_message
 
+        if MQTT_USERNAME:
+            client.username_pw_set(MQTT_USERNAME, MQTT_PASSWORD)
+        use_tls = MQTT_TLS or MQTT_PORT == 8883
+        if use_tls:
+            client.tls_set(tls_version=ssl.PROTOCOL_TLS_CLIENT)
+
         try:
             client.connect(MQTT_HOST, MQTT_PORT, keepalive=60)
         except Exception as e:
             print(f"[ERROR] Không kết nối được MQTT broker: {e}")
-            print(f"  → Đảm bảo Mosquitto đang chạy: mosquitto -v")
+            print(f"  → Kiểm tra MQTT_HOST/PORT/USERNAME/PASSWORD trong .env")
             sys.exit(1)
 
         return client
