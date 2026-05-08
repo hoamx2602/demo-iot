@@ -18,3 +18,5 @@ backend/__pycache__/
 
 *.csv
 **/*.csv
+
+.DS_Store
