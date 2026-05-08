@@ -164,6 +164,9 @@ class ConnectionManager:
 
 manager = ConnectionManager()
 
+# Cache latest sensor payload for /latest endpoint
+_last_sensor_payload: dict = {}
+
 # ─── MQTT Bridge ─────────────────────────────────────────────────────────────
 class MQTTBridge:
     """Subscribes to MQTT and pushes messages to WebSocket clients."""
@@ -189,6 +192,9 @@ class MQTTBridge:
         try:
             payload = json.loads(msg.payload.decode())
             payload["type"] = "sensor_update"
+            # Cache for /latest endpoint
+            global _last_sensor_payload
+            _last_sensor_payload = payload
             asyncio.run_coroutine_threadsafe(
                 manager.broadcast(payload),
                 self.loop
@@ -469,9 +475,18 @@ async def health():
         "status": "ok",
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "ai_provider": AI_PROVIDER,
-        "api_key_configured": bool(ANTHROPIC_API_KEY or OPENAI_API_KEY),
+        "api_key_configured": bool(ANTHROPIC_API_KEY or OPENAI_API_KEY or GEMINI_API_KEY),
         "ws_clients": len(manager.active),
+        "has_data": bool(_last_sensor_payload),
     }
+
+
+@app.get("/latest")
+async def latest():
+    """Return the most recent sensor payload received via MQTT."""
+    if not _last_sensor_payload:
+        return {"status": "no_data", "message": "No sensor data received yet. Start mqtt_replay.py first."}
+    return {"status": "ok", **_last_sensor_payload}
 
 
 @app.post("/analyze")
