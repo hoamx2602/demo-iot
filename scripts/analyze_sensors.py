@@ -1,9 +1,9 @@
 """
-Step 1: Phân tích dataset Kaggle Pump Sensor Data
-- Đọc sensor.csv
-- Xác định sensor nào có signal rõ trước/sau BROKEN
-- Nhóm 52 sensor thành 4 nhóm đại diện
-- Xuất sensor_groups.json để các script khác dùng
+Step 1: Analyse Kaggle Pump Sensor Dataset
+- Read sensor.csv
+- Identify which sensors have a clear signal before/after BROKEN
+- Group 52 sensors into 4 representative groups
+- Export sensor_groups.json for use by other scripts
 
 Usage:
     python scripts/analyze_sensors.py --csv data/sensor.csv
@@ -18,35 +18,35 @@ import numpy as np
 import pandas as pd
 
 
-# ─── Cấu hình nhóm sensor mặc định ─────────────────────────────────────────
-# Dựa trên nghiên cứu thực tế về máy bơm công nghiệp:
-#   • Vibration: sensor_00–12 (rung động cơ học)
-#   • Temperature: sensor_13–24 (nhiệt độ các điểm đo)
-#   • Pressure: sensor_25–38 (áp suất đầu vào/ra)
-#   • Flow Rate: sensor_39–51 (lưu lượng)
+# ─── Default sensor group configuration ─────────────────────────────────────
+# Based on physical properties of industrial pumps:
+#   • Vibration:   sensor_00–12 (mechanical vibration)
+#   • Temperature: sensor_13–24 (temperature measurement points)
+#   • Pressure:    sensor_25–38 (inlet/outlet pressure)
+#   • Flow Rate:   sensor_39–51 (volumetric flow)
 DEFAULT_GROUPS = {
-    "vibration": list(range(0, 13)),    # sensor_00 – sensor_12
-    "temperature": list(range(13, 25)), # sensor_13 – sensor_24
-    "pressure": list(range(25, 39)),    # sensor_25 – sensor_38
-    "flow_rate": list(range(39, 52)),   # sensor_39 – sensor_51
+    "vibration":   list(range(0, 13)),   # sensor_00 – sensor_12
+    "temperature": list(range(13, 25)),  # sensor_13 – sensor_24
+    "pressure":    list(range(25, 39)),  # sensor_25 – sensor_38
+    "flow_rate":   list(range(39, 52)),  # sensor_39 – sensor_51
 }
 
 GROUP_META = {
-    "vibration":   {"unit": "mm/s",  "display": "Vibration",    "icon": "⚡", "normal_range": [0, 4.5],  "warning": 4.5,  "critical": 7.0},
-    "temperature": {"unit": "°C",    "display": "Temperature",  "icon": "🌡", "normal_range": [60, 85],  "warning": 85,   "critical": 95},
-    "pressure":    {"unit": "bar",   "display": "Pressure",     "icon": "📊", "normal_range": [4, 8],    "warning": 8.5,  "critical": 10},
-    "flow_rate":   {"unit": "m³/h",  "display": "Flow Rate",    "icon": "💧", "normal_range": [120, 200],"warning": 110,  "critical": 90},
+    "vibration":   {"unit": "mm/s", "display": "Vibration",   "icon": "⚡", "normal_range": [0, 4.5],   "warning": 4.5,  "critical": 7.0},
+    "temperature": {"unit": "°C",   "display": "Temperature", "icon": "🌡", "normal_range": [60, 85],   "warning": 85,   "critical": 95},
+    "pressure":    {"unit": "bar",  "display": "Pressure",    "icon": "📊", "normal_range": [4, 8],     "warning": 8.5,  "critical": 10},
+    "flow_rate":   {"unit": "m³/h", "display": "Flow Rate",   "icon": "💧", "normal_range": [120, 200], "warning": 110,  "critical": 90},
 }
 
 
 def load_data(csv_path: str) -> pd.DataFrame:
-    print(f"[INFO] Đọc file: {csv_path}")
+    print(f"[INFO] Reading file: {csv_path}")
     df = pd.read_csv(csv_path)
 
-    # Chuẩn hoá tên cột
+    # Normalise column names
     df.columns = df.columns.str.strip().str.lower()
 
-    # Tìm cột timestamp
+    # Find timestamp column
     ts_col = next((c for c in df.columns if "timestamp" in c or "time" in c), None)
     if ts_col:
         df["timestamp"] = pd.to_datetime(df[ts_col])
@@ -54,33 +54,32 @@ def load_data(csv_path: str) -> pd.DataFrame:
     else:
         df["timestamp"] = pd.date_range("2024-01-01", periods=len(df), freq="1min")
 
-    # Tìm cột machine_status
+    # Find machine_status column
     status_col = next((c for c in df.columns if "status" in c or "machine" in c), None)
     if status_col:
         df["machine_status"] = df[status_col].str.upper().str.strip()
     else:
-        # Nếu không có: giả định NORMAL cho đến 80% cuối thì BROKEN
+        # Fallback: assume NORMAL for first 80%, then BROKEN, then RECOVERING
         n = len(df)
         status = ["NORMAL"] * int(n * 0.8) + ["BROKEN"] * int(n * 0.1) + ["RECOVERING"] * (n - int(n * 0.8) - int(n * 0.1))
         df["machine_status"] = status
 
-    # Xây sensor columns
+    # Build sensor column list
     sensor_cols = [f"sensor_{i:02d}" for i in range(52)]
     missing = [c for c in sensor_cols if c not in df.columns]
     if missing:
-        # Thử tìm theo pattern khác
         actual = [c for c in df.columns if c.startswith("sensor")]
-        print(f"[WARN] Không tìm thấy {len(missing)} sensor columns. Columns thực tế: {actual[:5]}...")
+        print(f"[WARN] {len(missing)} sensor columns not found. Actual columns: {actual[:5]}...")
 
     available = [c for c in sensor_cols if c in df.columns]
-    print(f"[INFO] Tìm thấy {len(available)}/52 sensor columns")
-    print(f"[INFO] Tổng rows: {len(df):,}")
-    print(f"[INFO] Phân bố machine_status:\n{df['machine_status'].value_counts()}")
+    print(f"[INFO] Found {len(available)}/52 sensor columns")
+    print(f"[INFO] Total rows: {len(df):,}")
+    print(f"[INFO] machine_status distribution:\n{df['machine_status'].value_counts()}")
     return df
 
 
 def compute_group_signal(df: pd.DataFrame, group_indices: list[int]) -> pd.Series:
-    """Tính giá trị đại diện cho một nhóm sensor (average of available)."""
+    """Return the average signal for a sensor group (mean of available columns)."""
     cols = [f"sensor_{i:02d}" for i in group_indices if f"sensor_{i:02d}" in df.columns]
     if not cols:
         return pd.Series([0.0] * len(df))
@@ -89,8 +88,8 @@ def compute_group_signal(df: pd.DataFrame, group_indices: list[int]) -> pd.Serie
 
 def analyze_group_divergence(df: pd.DataFrame) -> dict:
     """
-    Tính mức độ thay đổi của mỗi nhóm sensor trước khi BROKEN.
-    Dùng để chọn nhóm nào có signal rõ nhất.
+    Compute how much each sensor group changes before BROKEN.
+    Used to identify which groups have the clearest fault signal.
     """
     broken_mask = df["machine_status"] == "BROKEN"
     normal_mask = df["machine_status"] == "NORMAL"
@@ -113,24 +112,24 @@ def analyze_group_divergence(df: pd.DataFrame) -> dict:
 
 
 def find_first_anomaly_index(df: pd.DataFrame) -> int:
-    """Trả về index của row BROKEN đầu tiên trong dataset.
+    """Return the row index of the first BROKEN entry in the dataset.
 
-    mqtt_replay.py --start-at-anomaly sẽ lùi 200 rows từ đây,
-    cho ~33s NORMAL context trước khi BROKEN xuất hiện (360x compression).
+    mqtt_replay.py --start-at-anomaly will rewind 200 rows from here,
+    providing ~33s of NORMAL context before BROKEN appears (360x compression).
     """
     broken_rows = df[df["machine_status"] == "BROKEN"].index.tolist()
     if not broken_rows:
         return len(df) // 2
-    return broken_rows[0]  # Row BROKEN thực sự — không lùi offset
+    return broken_rows[0]
 
 
 def build_sensor_groups_config(df: pd.DataFrame, divergence: dict) -> dict:
     """
-    Tạo config file cho các bước tiếp theo.
-    Bao gồm:
-    - Mapping sensor → nhóm
-    - Scale factor để normalize về range dễ đọc (dashboard-friendly)
-    - Thresholds cảnh báo
+    Build the config file used by downstream scripts.
+    Includes:
+    - Sensor → group mapping
+    - Scale factor to normalise raw values to dashboard-friendly units
+    - Alert thresholds
     """
     first_anomaly_idx = find_first_anomaly_index(df)
 
@@ -139,7 +138,7 @@ def build_sensor_groups_config(df: pd.DataFrame, divergence: dict) -> dict:
         "demo": {
             "first_anomaly_row": first_anomaly_idx,
             "total_rows": len(df),
-            "time_compression_ratio": 360,  # 1h thật = 10s demo
+            "time_compression_ratio": 360,  # 1h real = 10s demo
             "status_column": "machine_status",
         }
     }
@@ -148,7 +147,7 @@ def build_sensor_groups_config(df: pd.DataFrame, divergence: dict) -> dict:
         available_cols = [f"sensor_{i:02d}" for i in indices if f"sensor_{i:02d}" in df.columns]
         signal = compute_group_signal(df, indices)
 
-        # Scale factor: đưa signal về range thực tế trong GROUP_META
+        # Compute scale factor to map raw signal into the real-world unit range
         sig_min, sig_max = signal.min(), signal.max()
         meta = GROUP_META[group_name]
         target_min, target_max = meta["normal_range"]
@@ -182,14 +181,14 @@ def build_sensor_groups_config(df: pd.DataFrame, divergence: dict) -> dict:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Phân tích Pump Sensor Dataset")
-    parser.add_argument("--csv", default="data/sensor.csv", help="Path đến file CSV")
-    parser.add_argument("--out", default="data/sensor_groups.json", help="Output config JSON")
+    parser = argparse.ArgumentParser(description="Analyse Pump Sensor Dataset")
+    parser.add_argument("--csv", default="data/sensor.csv",          help="Path to CSV file")
+    parser.add_argument("--out", default="data/sensor_groups.json",  help="Output config JSON path")
     args = parser.parse_args()
 
     if not os.path.exists(args.csv):
-        print(f"[ERROR] Không tìm thấy file: {args.csv}")
-        print("  → Đặt file CSV vào thư mục data/ và đặt tên sensor.csv")
+        print(f"[ERROR] File not found: {args.csv}")
+        print("  → Place the CSV file in the data/ directory and name it sensor.csv")
         sys.exit(1)
 
     print("\n" + "="*60)
@@ -198,29 +197,28 @@ def main():
 
     df = load_data(args.csv)
 
-    print("\n[STEP 2] Tính divergence score mỗi nhóm sensor:")
+    print("\n[STEP 2] Computing divergence score for each sensor group:")
     divergence = analyze_group_divergence(df)
 
-    print("\n[STEP 3] Xây dựng sensor group config...")
+    print("\n[STEP 3] Building sensor group config...")
     config = build_sensor_groups_config(df, divergence)
 
     os.makedirs(os.path.dirname(args.out), exist_ok=True)
     with open(args.out, "w") as f:
         json.dump(config, f, indent=2)
 
-    print(f"\n✅ Config đã lưu: {args.out}")
-    print(f"   • {len(config['groups'])} nhóm sensor")
-    print(f"   • Demo bắt đầu tại row: {config['demo']['first_anomaly_row']:,}")
-    print(f"   • Tổng rows: {config['demo']['total_rows']:,}")
+    print(f"\n✅ Config saved: {args.out}")
+    print(f"   • {len(config['groups'])} sensor groups")
+    print(f"   • Demo starts at row: {config['demo']['first_anomaly_row']:,}")
+    print(f"   • Total rows: {config['demo']['total_rows']:,}")
 
-    # In summary table
     print("\n[SENSOR GROUPS SUMMARY]")
     print(f"{'Group':<15} {'Sensors':>7} {'Divergence':>12} {'Unit':>8}")
     print("-" * 45)
     for g, v in config["groups"].items():
         print(f"{g:<15} {len(v['sensor_columns']):>7} {v['divergence_score']:>10.2f}σ {v['unit']:>8}")
 
-    print("\n[NEXT STEP] Chạy MQTT replay:")
+    print("\n[NEXT STEP] Run MQTT replay:")
     print(f"  python scripts/mqtt_replay.py --csv {args.csv} --config {args.out}")
 
 

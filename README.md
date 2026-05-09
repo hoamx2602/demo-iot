@@ -3,17 +3,17 @@
 
 ---
 
-## Kiến trúc hệ thống
+## System Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                        DATA FLOW                                │
 │                                                                 │
 │  sensor.csv  ──►  mqtt_replay.py  ──►  Mosquitto  ──►  Node-RED│
-│  (dataset)        (replay script)     (MQTT broker)   (xử lý)  │
+│  (dataset)        (replay script)     (MQTT broker)  (pipeline) │
 │                                                                 │
 │  Node-RED  ──►  FastAPI Backend  ──►  Claude API               │
-│             ◄──  (AI analysis)    ◄──  (kết quả)               │
+│             ◄──  (AI analysis)    ◄──  (result)                │
 │                       │                                         │
 │                   WebSocket                                     │
 │                       │                                         │
@@ -23,79 +23,79 @@
 
 ---
 
-## Vai trò từng thành phần
+## Component Overview
 
 ### 1. `sensor.csv` — Dataset
-Dữ liệu thật từ máy bơm công nghiệp (Kaggle Pump Sensor Data):
-- 220.320 readings, tần suất 1 phút/lần (~5 tháng vận hành)
-- 52 sensor thật: rung động, nhiệt độ, áp suất, lưu lượng
-- Nhãn `machine_status`: NORMAL / BROKEN / RECOVERING
+Real data from an industrial pump (Kaggle Pump Sensor Data):
+- 220,320 readings at 1-minute intervals (~5 months of operation)
+- 52 real sensors: vibration, temperature, pressure, flow rate
+- `machine_status` labels: NORMAL / BROKEN / RECOVERING
 
-### 2. `scripts/analyze_sensors.py` — Phân tích ban đầu
-Chạy một lần duy nhất khi setup:
-- Đọc CSV, nhóm 52 sensor thành 4 nhóm có ý nghĩa vật lý
-- Tính scale factor để ra đơn vị thực tế (mm/s, °C, bar, m³/h)
-- Xác định row đầu tiên có dấu hiệu bất thường
-- Xuất `data/sensor_groups.json` — config file dùng cho toàn hệ thống
+### 2. `scripts/analyze_sensors.py` — Initial Analysis
+Run once during setup:
+- Reads the CSV and groups 52 sensors into 4 physically meaningful groups
+- Computes a scale factor to map raw values to real-world units (mm/s, °C, bar, m³/h)
+- Identifies the first row showing signs of degradation
+- Outputs `data/sensor_groups.json` — the config file used throughout the system
 
 ### 3. `scripts/mqtt_replay.py` — Replay Script
-Đóng vai thiết bị IoT thật ngoài hiện trường:
-- Đọc CSV từng row, tính giá trị đại diện cho mỗi nhóm sensor
-- Thêm noise ngẫu nhiên ±0.8% để data trông tự nhiên
-- Gửi lên MQTT topic `pump/sensors` mỗi ~0.17 giây (tương đương 1 phút thật)
-- Nhận lệnh điều khiển từ topic `pump/control`: PAUSE / RESUME / JUMP:<row>
+Simulates a real IoT device in the field:
+- Reads the CSV row by row and computes a representative value for each sensor group
+- Adds ±0.8% random noise so readings look natural
+- Publishes to MQTT topic `pump/sensors` every ~0.17 s (equivalent to 1 real minute)
+- Accepts control commands on topic `pump/control`: PAUSE / RESUME / JUMP:<row>
 
-**Time compression:** 1 giờ dữ liệu thật = 10 giây trong hệ thống.
-Dùng `--start-at-anomaly` để bắt đầu ngay từ giai đoạn máy bắt đầu suy giảm.
+**Time compression:** 1 hour of real data = 10 seconds in the system.
+Use `--start-at-anomaly` to start just before the degradation phase begins.
 
 ### 4. Mosquitto — MQTT Broker
-Trung tâm nhận/phát message giữa các thành phần:
-- Giao thức MQTT (Message Queuing Telemetry Transport) — chuẩn công nghiệp IoT
-- Chạy local tại `localhost:1883`
-- Không lưu logic, chỉ route message
-- Trên production: thay bằng AWS IoT Core hoặc HiveMQ Cloud
+Message routing hub between all components:
+- MQTT (Message Queuing Telemetry Transport) — the industry standard for IoT
+- Runs locally at `localhost:1883`
+- Stateless — routes messages only, stores no logic
+- Production equivalent: AWS IoT Core / Azure IoT Hub
 
-### 5. `nodered/flows.json` — Node-RED Flow
-Lớp xử lý trung gian, làm 3 việc mà backend không làm:
+### 5. `nodered/flows.json` — Node-RED Pipeline
+Intermediate processing layer with three responsibilities:
 
-**Rolling Buffer:** Giữ 60 readings gần nhất (~60 phút thật) trong bộ nhớ.
+**Rolling Buffer:** Keeps the last 60 readings (~60 real minutes) in memory.
 
-**Compute Trends:** Với mỗi nhóm sensor, tính:
-- `avg_60`: trung bình 60 readings
-- `slope`: xu hướng tăng/giảm (linear regression)
-- `std_dev`: độ ổn định của sensor
-- `rate_of_change`: thay đổi so với reading trước
+**Compute Trends:** For each sensor group, calculates:
+- `avg_60`: rolling average over 60 readings
+- `slope`: rising/falling trend (linear regression)
+- `std_dev`: signal stability
+- `rate_of_change`: change vs. the previous reading
 - `status`: NORMAL / WARNING / CRITICAL
 
-**Throttle & Route:** Chỉ gửi lên AI khi có anomaly, tối đa 1 lần/10 giây — tránh tốn API cost khi máy đang hoạt động bình thường.
+**Throttle & Route:** Forwards to AI only on anomaly, at most once per 10 seconds — avoids burning API quota while the machine is healthy.
 
 ### 6. `backend/server.py` — FastAPI Backend
-Trung tâm điều phối:
-- **MQTT Bridge:** Subscribe `pump/sensors`, đẩy thẳng lên WebSocket cho dashboard
-- **POST /analyze:** Nhận snapshot từ Node-RED hoặc dashboard, gọi Claude API
-- **WebSocket /ws:** Broadcast real-time đến tất cả client đang mở dashboard
-- **Claude/OpenAI integration:** System prompt được tối ưu để output business-friendly
+Central coordinator:
+- **MQTT Bridge:** Subscribes to `pump/sensors` and pushes data to all dashboard WebSocket clients
+- **POST /analyze:** Receives a snapshot from Node-RED or the dashboard and calls the Claude API
+- **WebSocket /ws:** Real-time broadcast to all connected dashboard clients
+- **AI integration:** System prompt tuned for business-friendly, actionable output
 
 ### 7. `dashboard/index.html` — Web Dashboard
-Giao diện duy nhất người dùng nhìn vào:
+The single user-facing interface:
 
 **Tab 1 — Live Sensor Feed:**
-Health score ring, 4 sensor cards với sparkline chart, badge NORMAL/WARNING/CRITICAL cập nhật real-time.
+Health score ring, 4 sensor cards with sparkline charts, NORMAL/WARNING/CRITICAL badge updating in real time.
 
 **Tab 2 — Machine Health Timeline:**
-Trục thời gian từ NORMAL → DEGRADING → (dự báo) FAILURE. Điểm AI phát hiện đầu tiên được đánh dấu. Multi-sensor trend chart 60 readings. Event log.
+Timeline from NORMAL → DEGRADING → (predicted) FAILURE. First AI detection point is marked. 60-reading multi-sensor trend chart. Event log.
 
 **Tab 3 — AI Recommendation:**
-Risk level + confidence score. Danh sách sensor bất thường + giải thích vật lý. 4 hành động cụ thể có timeline và người chịu trách nhiệm. Cost impact: thiệt hại nếu không làm gì vs chi phí bảo trì có kế hoạch.
+Risk level + confidence score. List of anomalous sensors with physical explanations. 4 prioritised actions with timelines and owners. Cost impact: unplanned failure cost vs. planned maintenance cost.
 
 ---
 
-## Cách start hệ thống
+## Starting the System
 
-### Thứ tự khởi động (quan trọng)
+### Startup order (important)
 
 ```bash
-# Terminal 1 — MQTT Broker (phải start trước tiên)
+# Terminal 1 — MQTT Broker (must start first)
 mosquitto -p 1883
 
 # Terminal 2 — Backend + WebSocket
@@ -115,116 +115,116 @@ python scripts/mqtt_replay.py \
 open http://localhost:8000/dashboard/
 ```
 
-### Kiểm tra nhanh từng thành phần
+### Quick component check
 
-| Thành phần | Cách kiểm tra |
-|---|---|
-| Mosquitto | `mosquitto_pub -t test -m hello` — không báo lỗi |
+| Component | How to verify |
+|-----------|---------------|
+| Mosquitto | `mosquitto_pub -t test -m hello` — no error |
 | Backend | http://localhost:8000/health → `{"status":"ok"}` |
-| WebSocket | Dashboard badge chuyển xanh "Live" |
-| MQTT data | Terminal replay đang in rows |
-| Node-RED | http://localhost:1880 — badge "connected" |
+| WebSocket | Dashboard badge turns green "Live" |
+| MQTT data | Replay terminal is printing rows |
+| Node-RED | http://localhost:1880 — badge shows "connected" |
 
 ---
 
-## Cấu hình API key
+## API Key Configuration
 
 ```bash
 cp backend/.env.example backend/.env
 ```
 
-Mở `backend/.env`, điền một trong hai:
+Open `backend/.env` and fill in one of:
 
 ```env
-# Dùng Claude
+# Use Claude
 AI_PROVIDER=claude
 ANTHROPIC_API_KEY=sk-ant-...
 
-# Hoặc dùng OpenAI
+# Or use OpenAI
 AI_PROVIDER=openai
 OPENAI_API_KEY=sk-...
 ```
 
-Restart backend sau khi thay đổi.
+Restart the backend after any changes.
 
 ---
 
-## Script trình bày cho khách hàng
+## Demo Script
 
-### Chuẩn bị trước (5 phút)
+### Preparation (5 minutes)
 
-1. Start Mosquitto, backend, replay — **theo thứ tự trên**
-2. Replay dùng flag `--start-at-anomaly` để bắt đầu từ 200 rows trước điểm suy giảm
-3. Mở dashboard ở tab "Live Sensor Feed"
-4. Để chạy 30-60 giây cho chart có data trước khi khách vào phòng
+1. Start Mosquitto, backend, replay — **in the order above**
+2. Use `--start-at-anomaly` to begin 200 rows before the degradation point
+3. Open the dashboard on the "Live Sensor Feed" tab
+4. Let it run for 30–60 seconds so charts have data before the audience arrives
 
-### Phần 1 — Tình trạng bình thường (1-2 phút)
+### Part 1 — Normal operation (1–2 min)
 
-**Mở tab "Live Sensor Feed"**
+**Open "Live Sensor Feed" tab**
 
-Chỉ ra:
-- Health Score 88%, màu xanh
-- Cả 4 sensor badges đều NORMAL
-- Sparklines ổn định, không có biến động lớn
+Point out:
+- Health Score 88%, green colour
+- All 4 sensor badges showing NORMAL
+- Stable sparklines, no large fluctuations
 
-Câu nói: *"Đây là máy bơm đang vận hành bình thường. Hệ thống đang đọc 52 sensor thật, nhóm lại thành 4 chỉ số đại diện, cập nhật mỗi giây."*
+Say: *"This is the pump running normally. The system reads 52 real sensors, groups them into 4 representative metrics, and updates every second."*
 
-### Phần 2 — Phát hiện sự cố (2-3 phút)
+### Part 2 — Fault detection (2–3 min)
 
-**Quan sát badges bắt đầu chuyển vàng** (xảy ra tự nhiên khi replay chạy đến giai đoạn suy giảm)
+**Watch badges start turning yellow** (happens naturally as the replay reaches the degradation phase)
 
-Hoặc chủ động nhấn **"⚠ Simulate Anomaly"** trong Operator Controls.
+Or manually press **"⚠ Simulate Anomaly"** in the Operator Controls.
 
-Chỉ ra:
-- Health Score giảm xuống ~50%, màu vàng
-- Vibration và Temperature chuyển WARNING
-- Sparklines tăng rõ rệt
-- Switch sang tab "Machine Health Timeline" — thấy điểm AI Detection được đánh dấu trên trục thời gian
+Point out:
+- Health Score drops to ~50%, yellow
+- Vibration and Temperature turn WARNING
+- Sparklines trend visibly upward
+- Switch to "Machine Health Timeline" — AI Detection point is marked on the timeline
 
-Câu nói: *"Sensor bắt đầu vượt ngưỡng. Hệ thống phát hiện tức thì — không cần chờ đến ca kiểm tra định kỳ."*
+Say: *"Sensors are crossing thresholds. The system detects it instantly — no need to wait for a scheduled inspection."*
 
-### Phần 3 — AI phân tích (3-4 phút)
+### Part 3 — AI analysis (3–4 min)
 
-**Nhấn "🤖 Run AI Analysis"** — đợi 2-3 giây, dashboard tự chuyển sang tab AI Recommendation.
+**Press "🤖 Run AI Analysis"** — wait 2–3 s, the dashboard switches to AI Recommendation automatically.
 
-Đi qua từng phần:
+Walk through each section:
 
-**Risk Level + Confidence:** *"AI đánh giá HIGH risk với 87% confidence, dự báo failure trong vòng 18 giờ."*
+**Risk Level + Confidence:** *"AI rates this HIGH risk with 87% confidence, predicting failure within 18 hours."*
 
-**Anomalous Sensors:** *"Cụ thể, vibration đang ở 5.8 mm/s trong khi ngưỡng bình thường là 0–4.5. Temperature đồng thời tăng — hai thứ tăng cùng lúc là dấu hiệu điển hình của bearing wear."*
+**Anomalous Sensors:** *"Specifically, vibration is at 5.8 mm/s against a normal range of 0–4.5. Temperature is rising simultaneously — both trending together is a classic bearing wear signature."*
 
-**Recommended Actions:** *"AI đề xuất 4 hành động theo thứ tự ưu tiên, có timeline cụ thể và chỉ định người phụ trách — operator biết ngay phải làm gì."*
+**Recommended Actions:** *"AI proposes 4 prioritised actions with specific timelines and assigned owners — operators know exactly what to do next."*
 
-**Cost Impact — phần quan trọng nhất:** *"Nếu không làm gì: $524,000 thiệt hại — 48 giờ dừng máy, sửa khẩn cấp, phạt môi trường. Nếu bảo trì có kế hoạch ngay hôm nay: $10,500. Hệ thống đã cứu được $513,500 chỉ từ một cảnh báo sớm."*
+**Cost Impact — the key section:** *"Doing nothing: $524,000 in losses — 48 h downtime, emergency repair, environmental fines. Planned maintenance today: $10,500. One early alert saved $513,500."*
 
-### Câu chốt
+### Closing line
 
-*"Trước đây, kỹ sư phải đợi máy hỏng mới biết — hoặc kiểm tra định kỳ tốn kém dù máy vẫn tốt. Với IoT + AI, hệ thống cảnh báo trước 18 giờ, đủ thời gian lên lịch bảo trì trong ca thấp điểm, đặt linh kiện, chuẩn bị nhân lực. Unplanned downtime giảm, chi phí bảo trì giảm, tuổi thọ máy tăng."*
+*"Previously, engineers had to wait for the machine to break down — or run costly scheduled inspections even when everything was fine. With IoT + AI, the system warns 18 hours in advance — enough time to schedule maintenance during a low-demand shift, order parts, and arrange personnel. Unplanned downtime drops, maintenance costs fall, and machine lifespan increases."*
 
 ---
 
-## Deploy lên AWS
+## Deploy to AWS
 
-### Option A — EC2 (nhanh nhất)
+### Option A — EC2 (fastest)
 
 ```bash
 # 1. Launch EC2 t3.medium, Ubuntu 22.04
-# 2. Mở Security Group: port 22, 1883, 8000, 1880
+# 2. Open Security Group: ports 22, 1883, 8000, 1880
 
-# 3. Trên EC2:
+# 3. On EC2:
 curl -fsSL https://get.docker.com | sh
 sudo usermod -aG docker ubuntu
 
-# 4. Copy project lên EC2
+# 4. Copy project to EC2
 scp -r pump-iot-demo ubuntu@<EC2-IP>:~/
 
 # 5. Start
 cd ~/pump-iot-demo/docker
 cp ../backend/.env.example ../backend/.env
-nano ../backend/.env   # điền API key
+nano ../backend/.env   # fill in API key
 docker compose up -d
 
-# 6. Replay từ máy local, trỏ đến EC2
+# 6. Replay from local machine, pointing at EC2
 MQTT_HOST=<EC2-IP> python scripts/mqtt_replay.py \
   --csv data/sensor.csv \
   --config data/sensor_groups.json \
@@ -233,7 +233,7 @@ MQTT_HOST=<EC2-IP> python scripts/mqtt_replay.py \
 
 Dashboard: `http://<EC2-IP>:8000/dashboard/`
 
-### Option B — Docker local (không cần cài tay)
+### Option B — Docker local
 
 ```bash
 cd pump-iot-demo/docker
@@ -243,27 +243,27 @@ docker compose up -d
 
 ---
 
-## Cấu trúc thư mục
+## Directory Structure
 
 ```
 pump-iot-demo/
 ├── data/
-│   ├── sensor.csv              ← dataset Kaggle (đặt vào đây)
-│   └── sensor_groups.json      ← tự tạo khi chạy analyze_sensors.py
+│   ├── sensor.csv              ← Kaggle dataset (place here)
+│   └── sensor_groups.json      ← auto-generated by analyze_sensors.py
 ├── scripts/
-│   ├── analyze_sensors.py      ← chạy 1 lần lúc setup
-│   └── mqtt_replay.py          ← chạy mỗi lần muốn stream data
+│   ├── analyze_sensors.py      ← run once at setup
+│   └── mqtt_replay.py          ← run whenever you want to stream data
 ├── nodered/
-│   ├── flows.json              ← import vào Node-RED
-│   └── setup_nodered.sh        ← cài + import tự động (macOS)
+│   ├── flows.json              ← import into Node-RED
+│   └── setup_nodered.sh        ← install + import automatically (macOS)
 ├── backend/
 │   ├── server.py               ← FastAPI + WebSocket + AI
 │   ├── requirements.txt
-│   └── .env.example            ← copy thành .env, điền API key
+│   └── .env.example            ← copy to .env, fill in API key
 ├── dashboard/
-│   └── index.html              ← mở thẳng trên browser
+│   └── index.html              ← open directly in browser
 ├── docker/
-│   ├── docker-compose.yml      ← deploy tất cả services
+│   ├── docker-compose.yml      ← deploy all services
 │   ├── Dockerfile.backend
 │   └── mosquitto.conf
 └── README.md
@@ -274,16 +274,16 @@ pump-iot-demo/
 ## Troubleshooting
 
 **Dashboard "Offline"**
-→ Backend chưa chạy. Chạy: `uvicorn backend.server:app --port 8000`
+→ Backend is not running. Run: `uvicorn backend.server:app --port 8000`
 
 **Node-RED "connecting"**
-→ Mosquitto chưa chạy. Chạy: `mosquitto -p 1883`
+→ Mosquitto is not running. Run: `mosquitto -p 1883`
 
-**AI trả về pre-loaded analysis**
-→ API key chưa điền. Mở `backend/.env`, điền key, restart backend.
+**AI returns pre-loaded analysis**
+→ API key not set. Open `backend/.env`, fill in the key, restart the backend.
 
-**Replay không thấy data trên dashboard**
-→ Kiểm tra thứ tự: Mosquitto → Backend → Replay. Backend phải start trước replay.
+**No data appearing on dashboard**
+→ Check startup order: Mosquitto → Backend → Replay. Backend must start before the replay script.
 
 **Port 1883 already in use**
-→ `lsof -i :1883 | grep LISTEN` rồi kill process đó, hoặc `brew services restart mosquitto`
+→ `lsof -i :1883 | grep LISTEN` then kill that process, or `brew services restart mosquitto`

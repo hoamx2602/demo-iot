@@ -1,17 +1,17 @@
-# 🚀 Hướng dẫn Deploy PumpGuard AI
+# 🚀 PumpGuard AI — Deployment Guide
 
-> Project gồm 3 service: **FastAPI backend** (Python + WebSocket) · **Mosquitto MQTT broker** · **Node-RED**  
-> Docker Compose đã có sẵn tại `docker/docker-compose.yml`
+> The project consists of 3 services: **FastAPI backend** (Python + WebSocket) · **Mosquitto MQTT broker** · **Node-RED**
+> Docker Compose is pre-configured at `docker/docker-compose.yml`
 
 ---
 
-## ⚡ Option 1: Railway (Khuyến nghị)
+## ⚡ Option 1: Railway (Recommended)
 
-**Ưu điểm:** Free tier $5/tháng credit, hỗ trợ WebSocket tốt, deploy từ GitHub 1 click, hỗ trợ nhiều service.
+**Pros:** $5/month free credit, solid WebSocket support, 1-click deploy from GitHub, supports multiple services.
 
-### Bước 1 — Cập nhật docker-compose cho Gemini
+### Step 1 — Update docker-compose for your AI provider
 
-Thêm `GEMINI_API_KEY` vào `environment` của service `backend` trong `docker/docker-compose.yml`:
+Add your API key to the `environment` section of the `backend` service in `docker/docker-compose.yml`:
 
 ```yaml
 environment:
@@ -25,7 +25,7 @@ environment:
   - ALERT_TO=${ALERT_TO:-}
 ```
 
-### Bước 2 — Tạo `railway.toml` ở root
+### Step 2 — Create `railway.toml` at the repo root
 
 ```toml
 [build]
@@ -37,13 +37,13 @@ healthcheckPath = "/health"
 restartPolicyType = "ON_FAILURE"
 ```
 
-### Bước 3 — Deploy
+### Step 3 — Deploy
 
 ```bash
-# Cài Railway CLI
+# Install Railway CLI
 npm install -g @railway/cli
 
-# Login và init
+# Login and initialise
 railway login
 railway init
 
@@ -58,18 +58,18 @@ railway variables set MQTT_HOST=localhost
 railway up
 ```
 
-Dashboard: `https://<tên-project>.up.railway.app/dashboard/`
+Dashboard: `https://<project-name>.up.railway.app/dashboard/`
 
-> **Lưu ý MQTT:** Nếu chỉ demo AI — dùng **Operator Controls** (▶ Normal / ⚠ Simulate Anomaly) trên dashboard, không cần MQTT thật.
+> **MQTT note:** If you only need the AI demo — use the **Operator Controls** (▶ Normal / ⚠ Simulate Anomaly) on the dashboard; no real MQTT connection required.
 
 ---
 
 ## 🟢 Option 2: Render (Free tier)
 
-**Ưu điểm:** Free hoàn toàn, dễ dùng.  
-**Nhược:** Ngủ sau 15 phút idle → cold start ~30s khi có request mới.
+**Pros:** Completely free, easy to set up.
+**Cons:** Sleeps after 15 minutes idle → ~30 s cold start on the next request.
 
-### Bước 1 — Tạo `Dockerfile` ở root repo
+### Step 1 — Create a `Dockerfile` at the repo root
 
 ```dockerfile
 FROM python:3.11-slim
@@ -82,12 +82,12 @@ EXPOSE 8000
 CMD ["uvicorn", "backend.server:app", "--host", "0.0.0.0", "--port", "8000"]
 ```
 
-### Bước 2 — Tạo Web Service trên Render
+### Step 2 — Create a Web Service on Render
 
-1. Vào [render.com](https://render.com) → **New** → **Web Service**
-2. Connect GitHub repo `hoamx2602/demo-iot`
+1. Go to [render.com](https://render.com) → **New** → **Web Service**
+2. Connect your GitHub repo
 3. Runtime: **Docker**
-4. Điền Environment Variables:
+4. Fill in Environment Variables:
 
 | Key | Value |
 |-----|-------|
@@ -104,21 +104,21 @@ Dashboard: `https://pump-iot-demo.onrender.com/dashboard/`
 
 ---
 
-## 🖥 Option 3: VPS / AWS EC2 (Full control — MQTT thật)
+## 🖥 Option 3: VPS / AWS EC2 (Full control — real MQTT)
 
-**Tốt nhất nếu cần MQTT thật + Node-RED + demo đầy đủ.**
+**Best option if you need real MQTT + Node-RED + full demo.**
 
-### Bước 1 — Tạo server
+### Step 1 — Provision a server
 
-- **AWS EC2 free tier:** t2.micro, Ubuntu 22.04, mở port 22/8000/1883/1880
-- **DigitalOcean:** Droplet $6/tháng, Ubuntu 22.04
+- **AWS EC2 free tier:** t2.micro, Ubuntu 22.04, open ports 22/8000/1883/1880
+- **DigitalOcean:** $6/month Droplet, Ubuntu 22.04
 
-### Bước 2 — Cài Docker và clone repo
+### Step 2 — Install Docker and clone the repo
 
 ```bash
 ssh ubuntu@<server-ip>
 
-# Cài Docker
+# Install Docker
 curl -fsSL https://get.docker.com | sh
 sudo usermod -aG docker $USER && newgrp docker
 
@@ -127,7 +127,7 @@ git clone https://github.com/hoamx2602/demo-iot.git
 cd demo-iot
 ```
 
-### Bước 3 — Tạo `.env` trên server
+### Step 3 — Create `.env` on the server
 
 ```bash
 cat > backend/.env << 'EOF'
@@ -140,18 +140,18 @@ ALERT_TO=your@email.com
 EOF
 ```
 
-### Bước 4 — Chạy Docker Compose
+### Step 4 — Run Docker Compose
 
 ```bash
 cd docker
 docker compose --env-file ../backend/.env up -d
 
-# Kiểm tra
+# Verify
 docker compose ps
 docker compose logs backend -f
 ```
 
-### Bước 5 — Truy cập
+### Step 5 — Access the services
 
 | Service | URL |
 |---------|-----|
@@ -159,7 +159,7 @@ docker compose logs backend -f
 | Node-RED | `http://<server-ip>:1880` |
 | Health check | `http://<server-ip>:8000/health` |
 
-### Bước 6 (Tuỳ chọn) — Domain + HTTPS
+### Step 6 (Optional) — Custom domain + HTTPS
 
 ```bash
 sudo apt install -y nginx certbot python3-certbot-nginx
@@ -185,24 +185,24 @@ sudo certbot --nginx -d yourdomain.com
 
 ---
 
-## 📋 So sánh nhanh
+## 📋 Quick Comparison
 
 | | Railway | Render | VPS/EC2 |
 |---|---|---|---|
-| **Giá** | $5 credit/tháng | Free | $0–6/tháng |
-| **MQTT thật** | ✅ internal | ❌ | ✅ |
+| **Cost** | $5 credit/month | Free | $0–6/month |
+| **Real MQTT** | ✅ internal | ❌ | ✅ |
 | **WebSocket** | ✅ | ✅ | ✅ |
 | **Node-RED** | ✅ | ❌ | ✅ |
-| **Độ khó** | ⭐ Dễ | ⭐ Dễ | ⭐⭐⭐ |
-| **Tốt cho** | Demo nhanh | Demo nhẹ | Production |
+| **Difficulty** | ⭐ Easy | ⭐ Easy | ⭐⭐⭐ |
+| **Best for** | Quick demo | Lightweight demo | Production |
 
 ---
 
-## ⚠️ Lưu ý quan trọng
+## ⚠️ Important Notes
 
-1. **WebSocket HTTPS:** Dashboard dùng `ws://` — nếu deploy HTTPS phải đổi thành `wss://` trong `index.html` dòng 725:
+1. **WebSocket over HTTPS:** The dashboard uses `ws://` — if deploying with HTTPS you must switch to `wss://` in `index.html`:
    ```js
-   const WS_URL = `wss://${location.hostname}/ws`;  // bỏ :8000 nếu dùng nginx
+   const WS_URL = `wss://${location.hostname}/ws`;  // remove :8000 if using nginx
    ```
-2. **Gemini API key** phải điền vào env vars của platform, không commit vào git
-3. Nếu chỉ demo AI mà không có MQTT: **Operator Controls** vẫn hoạt động đầy đủ
+2. **API key security:** Always set your API key via the platform's environment variables — never commit it to Git.
+3. **AI-only demo:** If you don't have a real MQTT source, **Operator Controls** on the dashboard are fully functional without any MQTT connection.

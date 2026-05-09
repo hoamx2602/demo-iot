@@ -1,4 +1,4 @@
-"""Tạo PumpGuard_Colab.ipynb từ WORKSHOP.md (các code block được extract thành cells)"""
+"""Generate PumpGuard_Colab.ipynb from code blocks (legacy helper script)."""
 import json, os, re
 
 def md(src): return {"cell_type":"markdown","metadata":{},"source":[src]}
@@ -8,37 +8,37 @@ cells = []
 
 cells.append(md("""# 🏭 PumpGuard AI — Setup Notebook
 
-> Notebook này giúp bạn chạy từng bước theo **docs/WORKSHOP.md**.  
-> **Yêu cầu:** Đã upload code files lên Colab theo hướng dẫn trong WORKSHOP.md trước khi chạy.
+> This notebook walks you through the setup steps from **docs/WORKSHOP.md**.
+> **Requirement:** Upload all code files to Colab as described in WORKSHOP.md before running.
 
-| Bước | Nội dung |
-|------|----------|
-| 1 | Tạo thư mục |
-| 2 | Kiểm tra file |
-| 3 | Cài dependencies |
-| 4 | Cấu hình API Key |
-| 5 | Khởi động MQTT |
-| 6 | Khởi động Backend |
-| 7 | Public URL (Cloudflare) |
-| 8 | Stream data (tuỳ chọn) |
+| Step | Description |
+|------|-------------|
+| 1 | Create directory structure |
+| 2 | Verify uploaded files |
+| 3 | Install dependencies |
+| 4 | Configure API Key |
+| 5 | Start MQTT broker |
+| 6 | Start Backend |
+| 7 | Create Public URL (Cloudflare) |
+| 8 | Stream sensor data (optional) |
 """))
 
-cells.append(md("## Bước 1 — Tạo cấu trúc thư mục"))
+cells.append(md("## Step 1 — Create directory structure"))
 cells.append(code("""\
 import os
 for folder in ['/content/pumpguard/backend', '/content/pumpguard/dashboard',
                '/content/pumpguard/data', '/content/pumpguard/scripts']:
     os.makedirs(folder, exist_ok=True)
-print("✅ Đã tạo thư mục. Bây giờ upload file theo WORKSHOP.md Bước 3.")
+print("✅ Directories created. Now upload files as described in WORKSHOP.md Step 3.")
 print()
 print("   /content/pumpguard/")
 print("     ├── backend/    ← server.py, requirements.txt")
 print("     ├── dashboard/  ← index.html")
-print("     ├── data/       ← sensor_groups.json (+ sensor.csv nếu có)")
+print("     ├── data/       ← sensor_groups.json (+ sensor.csv if available)")
 print("     └── scripts/    ← mqtt_replay.py")
 """))
 
-cells.append(md("## Bước 2 — Kiểm tra file đã upload đúng chưa"))
+cells.append(md("## Step 2 — Verify uploaded files"))
 cells.append(code("""\
 import os
 files = [
@@ -51,41 +51,41 @@ files = [
 all_ok = True
 for f in files:
     ok = os.path.exists(f)
-    print(f"{'✅' if ok else '❌ THIẾU'}  {f.replace('/content/pumpguard/', '')}")
+    print(f"{'✅' if ok else '❌ MISSING'}  {f.replace('/content/pumpguard/', '')}")
     if not ok: all_ok = False
 print()
-print("✅ Tất cả OK!" if all_ok else "❌ Upload file còn thiếu theo WORKSHOP.md trước khi tiếp tục!")
+print("✅ All files present!" if all_ok else "❌ Missing files — upload them before continuing.")
 """))
 
-cells.append(md("## Bước 3 — Cài dependencies"))
+cells.append(md("## Step 3 — Install dependencies"))
 cells.append(code("""\
 import subprocess, sys
-print("📦 Cài Python packages...")
+print("📦 Installing Python packages...")
 subprocess.run([sys.executable, "-m", "pip", "install", "-q",
                 "-r", "/content/pumpguard/backend/requirements.txt"], check=True)
-print("🦟 Cài Mosquitto...")
+print("🦟 Installing Mosquitto...")
 subprocess.run(["apt-get", "install", "-y", "-q", "mosquitto"], check=True, capture_output=True)
-print("✅ Tất cả dependencies đã cài xong!")
+print("✅ All dependencies installed!")
 """))
 
-cells.append(md("""## Bước 4 — Cấu hình Gemini API Key
+cells.append(md("""## Step 4 — Configure Gemini API Key
 
-Lấy key miễn phí tại: https://aistudio.google.com/apikey  
-Điền vào ô `GEMINI_API_KEY` bên dưới rồi chạy cell.
+Get a free key at: https://aistudio.google.com/apikey
+Fill in `GEMINI_API_KEY` below and run the cell.
 """))
 cells.append(code("""\
-GEMINI_API_KEY = "AIzaSy-xxxx"   # ← THAY BẰNG KEY THẬT CỦA BẠN
+GEMINI_API_KEY = "AIzaSy-xxxx"   # ← REPLACE WITH YOUR REAL KEY
 
 with open("/content/pumpguard/backend/.env", "w") as f:
     f.write(f"AI_PROVIDER=gemini\\nGEMINI_API_KEY={GEMINI_API_KEY}\\nMQTT_HOST=localhost\\nMQTT_PORT=1883\\n")
 
 if GEMINI_API_KEY.startswith("AIzaSy") and len(GEMINI_API_KEY) > 20:
-    print(f"✅ API key: {GEMINI_API_KEY[:14]}...")
+    print(f"✅ API key set: {GEMINI_API_KEY[:14]}...")
 else:
-    print("⚠️  Điền API key thật vào ô trên!")
+    print("⚠️  Enter your real API key above!")
 """))
 
-cells.append(md("## Bước 5 — Khởi động MQTT Broker"))
+cells.append(md("## Step 5 — Start MQTT Broker"))
 cells.append(code("""\
 import subprocess, time
 with open("/tmp/mosquitto.conf", "w") as f:
@@ -95,10 +95,10 @@ time.sleep(0.5)
 proc = subprocess.Popen(["mosquitto", "-c", "/tmp/mosquitto.conf"],
                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 time.sleep(1)
-print(f"{'✅ Mosquitto running (PID ' + str(proc.pid) + ') — port 1883' if proc.poll() is None else '❌ Lỗi — thử chạy lại'}")
+print(f"{'✅ Mosquitto running (PID ' + str(proc.pid) + ') — port 1883' if proc.poll() is None else '❌ Failed — try re-running this cell'}")
 """))
 
-cells.append(md("## Bước 6 — Khởi động FastAPI Backend"))
+cells.append(md("## Step 6 — Start FastAPI Backend"))
 cells.append(code("""\
 import subprocess, sys, os, time, requests
 
@@ -114,7 +114,7 @@ proc = subprocess.Popen([sys.executable, "-m", "uvicorn", "backend.server:app",
                          "--host", "0.0.0.0", "--port", "8000"],
                         stdout=log, stderr=log, env={**os.environ, **env_vars})
 
-print("⏳ Khởi động backend", end="")
+print("⏳ Starting backend", end="")
 for _ in range(20):
     time.sleep(1)
     try:
@@ -122,18 +122,18 @@ for _ in range(20):
         if r.status_code == 200:
             d = r.json()
             print(f"\\n✅ Backend running!")
-            print(f"   AI: {d['ai_provider']} | Key: {'✅ OK' if d['api_key_configured'] else '❌ Chưa set'}")
+            print(f"   AI: {d['ai_provider']} | Key: {'✅ OK' if d['api_key_configured'] else '❌ Not set'}")
             break
     except: print(".", end="", flush=True)
 else:
-    print("\\n❌ Lỗi. Xem log:")
+    print("\\n❌ Failed to start. Check log:")
     print(open("/tmp/backend.log").read()[-2000:])
 """))
 
-cells.append(md("""## Bước 7 — Tạo Public URL
+cells.append(md("""## Step 7 — Create Public URL
 
-Dùng **Cloudflare Tunnel** — không cần tài khoản, không cần token.  
-URL có dạng: `https://xxxx.trycloudflare.com`
+Using **Cloudflare Tunnel** — no account or token required.
+URL format: `https://xxxx.trycloudflare.com`
 """))
 cells.append(code("""\
 import subprocess, time, re
@@ -148,7 +148,7 @@ log = open("/tmp/cf.log", "w")
 subprocess.Popen(["cloudflared", "tunnel", "--url", "http://localhost:8000", "--no-autoupdate"],
                  stdout=log, stderr=subprocess.STDOUT)
 
-print("⏳ Đợi Cloudflare", end="")
+print("⏳ Waiting for Cloudflare", end="")
 url = None
 for _ in range(30):
     time.sleep(2)
@@ -161,53 +161,53 @@ for _ in range(30):
 print()
 if url:
     print("\\n" + "="*60)
-    print("🎉  PUMPGUARD AI ĐANG CHẠY!")
+    print("🎉  PUMPGUARD AI IS LIVE!")
     print("="*60)
     print(f"\\n🌐  Dashboard  →  {url}/dashboard/")
     print(f"🔗  API Docs   →  {url}/docs")
-    print("\\n📌  Copy URL Dashboard và mở trên browser!")
+    print("\\n📌  Copy the Dashboard URL and open it in your browser!")
     print("="*60)
 else:
-    print("❌ Không lấy được URL. Chạy lại cell này.")
+    print("❌ Could not get URL. Re-run this cell.")
 """))
 
-cells.append(md("""## Bước 8 — Stream dữ liệu sensor *(Tuỳ chọn)*
+cells.append(md("""## Step 8 — Stream sensor data *(Optional)*
 
-Nếu đã upload `data/sensor.csv`, chạy cell này để stream data lên dashboard.  
-Nếu không, dùng **Operator Controls** (nút ⚙ góc phải dashboard) để mô phỏng.
+If you have uploaded `data/sensor.csv`, run this cell to stream data to the dashboard.
+Otherwise use the **Operator Controls** (⚙ button, top-right of the dashboard) to simulate.
 
-> ⚠️ Cell này chạy liên tục — nhấn ⏹ để dừng.
+> ⚠️ This cell runs continuously — press ⏹ to stop.
 """))
 cells.append(code("""\
 import os, sys
 os.chdir("/content/pumpguard")
 
 if os.path.exists("data/sensor.csv"):
-    print("▶ Streaming data... (nhấn ⏹ để dừng)")
+    print("▶ Streaming data... (press ⏹ to stop)")
     os.system(f"{sys.executable} scripts/mqtt_replay.py "
               "--csv data/sensor.csv --config data/sensor_groups.json "
               "--start-at-anomaly --compression 360")
 else:
-    print("ℹ️  Không có sensor.csv. Dùng Operator Controls trên dashboard:")
-    print("   Nút ⚙ góc phải → ⚠ Simulate Anomaly hoặc 🔴 Simulate Critical")
+    print("ℹ️  No sensor.csv found. Use Operator Controls on the dashboard:")
+    print("   ⚙ button → ⚠ Simulate Anomaly  or  🔴 Simulate Critical")
 """))
 
 cells.append(md("""---
 ## 🛠 Troubleshooting
 
 ```python
-# Xem log backend
+# View backend log
 print(open("/tmp/backend.log").read()[-3000:])
 
-# Restart sau khi Colab timeout → chạy lại Bước 5, 6, 7
+# After a Colab timeout → re-run Steps 5, 6, 7
 ```
 
-| Vấn đề | Giải pháp |
-|--------|----------|
-| AI chỉ hiện `[MOCK]` | Chạy lại Bước 4 với key thật |
-| Backend không start | Kiểm tra file đã upload đúng chưa (Bước 2) |
-| Cloudflare không lên | Chạy lại Bước 7 |
-| Colab timeout | Chạy lại Bước 5 → 6 → 7 |
+| Problem | Solution |
+|---------|----------|
+| AI shows `[MOCK]` | Re-run Step 4 with a real API key |
+| Backend fails to start | Verify files are uploaded correctly (Step 2) |
+| Cloudflare URL not available | Re-run Step 7 |
+| Colab session expired | Re-run Steps 5 → 6 → 7 |
 """))
 
 nb = {
@@ -222,4 +222,4 @@ nb = {
 out = "/Users/hoamai/Documents/Claude/Projects/IOT/pump-iot-demo/notebooks/PumpGuard_Colab.ipynb"
 with open(out, "w", encoding="utf-8") as f:
     json.dump(nb, f, ensure_ascii=False, indent=1)
-print(f"✅ Notebook tạo xong: {len(cells)} cells")
+print(f"✅ Notebook generated: {len(cells)} cells")

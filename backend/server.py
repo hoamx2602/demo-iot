@@ -1,14 +1,14 @@
 """
 PumpGuard AI — Backend Server
 - FastAPI + WebSocket
-- Subscribe MQTT → broadcast đến dashboard qua WebSocket
-- POST /analyze  → Claude API → trả JSON business-friendly
-- POST /alert    → Resend email alert khi phát hiện anomaly
+- Subscribe MQTT → broadcast sensor data to dashboard via WebSocket
+- POST /analyze  → Claude API → returns business-friendly JSON
+- POST /alert    → Resend email alert on anomaly detection
 
 Run:
     uvicorn backend.server:app --host 0.0.0.0 --port 8000 --reload
 
-Environment variables (đặt trong .env):
+Environment variables (set in .env):
     AI_PROVIDER=claude|openai
     ANTHROPIC_API_KEY=sk-ant-...
     RESEND_API_KEY=re_...
@@ -261,7 +261,7 @@ class MQTTBridge:
             result["triggered_by"] = "auto"
             await manager.broadcast(result)
 
-            # Auto-send email alert (server-side, không cần dashboard mở)
+            # Auto-send email alert (server-side, no need for dashboard to be open)
             alert_level = "CRITICAL" if machine_status in ("BROKEN", "CRITICAL") else "WARNING"
             sensor_summary, sensor_statuses = _build_sensor_summary(sensors)
             alert_req = AlertRequest(
@@ -292,7 +292,7 @@ class MQTTBridge:
         if use_tls:
             self.client.tls_set(tls_version=ssl.PROTOCOL_TLS_CLIENT)
         self.client.loop_start()
-        # Retry initial connection (Mosquitto có thể chưa kịp ready)
+        # Retry initial connection (Mosquitto may not be ready yet)
         for attempt in range(8):
             try:
                 self.client.connect(MQTT_HOST, MQTT_PORT, keepalive=60)
@@ -648,7 +648,7 @@ async def control_trigger_ai():
 
 # ─── Email Alert ─────────────────────────────────────────────────────────────
 
-# Sensor thresholds (khớp với SENSOR_GAUGE_CFG trong dashboard)
+# Sensor thresholds (must match SENSOR_GAUGE_CFG in the dashboard)
 _SENSOR_THRESHOLDS = {
     "vibration":   {"warn": 4.5,  "crit": 6.5,  "unit": "mm/s", "invert": False},
     "temperature": {"warn": 85.0, "crit": 95.0,  "unit": "°C",   "invert": False},
@@ -669,7 +669,7 @@ def _sensor_status(name: str, val: float) -> str:
     return "NORMAL"
 
 def _build_sensor_summary(sensors: dict):
-    """Trả về (sensor_summary, sensor_statuses) từ raw sensor values."""
+    """Return (sensor_summary, sensor_statuses) from raw sensor values."""
     summary  = {}
     statuses = {}
     for name, val in sensors.items():
@@ -693,7 +693,7 @@ class AlertRequest(BaseModel):
 
 
 def _build_email_html(req: AlertRequest) -> str:
-    # Đọc PUBLIC_URL mỗi lần gọi (có thể được set sau khi server khởi động)
+    # Read PUBLIC_URL on every call (may be set after server has already started)
     _public_url = os.getenv("PUBLIC_URL", "http://localhost:8000").rstrip("/")
     _dashboard_url = _public_url + "/dashboard/"
 
@@ -791,7 +791,7 @@ def _build_email_html(req: AlertRequest) -> str:
 </html>"""
 
 
-# Cooldown: tránh gửi quá nhiều mail
+# Cooldown: prevent sending too many emails in a short period
 _last_alert_time: float = 0.0
 _ALERT_COOLDOWN_SEC = 60.0
 

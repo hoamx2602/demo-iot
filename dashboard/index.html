@@ -440,7 +440,7 @@
     </div>
   </div>
 
-  <!-- ── Alert Panel: hiện khi có sensor bất ổn ── -->
+  <!-- ── Alert Panel: shown when sensors are out of range ── -->
   <div id="alert-panel" style="display:none;margin-bottom:16px;padding:14px 18px;border-radius:10px;border:1px solid #ef4444;background:rgba(239,68,68,.07)">
     <div style="font-size:.72rem;font-weight:700;color:#ef4444;text-transform:uppercase;letter-spacing:.09em;margin-bottom:10px">
       🚨 Sensors Requiring Attention
@@ -812,8 +812,8 @@ const state = {
   startRow: null,
   latestPayload: null,
   aiDetectedAt: null,
-  _lastEmailTime: 0,       // cooldown: không spam email
-  _lastEmailLevel: null,   // tránh gửi lại cùng level liên tiếp
+  _lastEmailTime: 0,       // cooldown: prevent email spam
+  _lastEmailLevel: null,   // avoid re-sending the same level consecutively
 };
 
 // ═══════════════════════════════════════════════════════════════
@@ -872,7 +872,7 @@ function getSensorStatus(name, val) {
   return 'NORMAL';
 }
 
-// Lưu trạng thái từng sensor để vẽ alert panel
+// Store per-sensor status for rendering the alert panel
 const _sensorAlertState = {};
 
 function updateSensorCard(name, val, statusOverride) {
@@ -898,11 +898,11 @@ function updateSensorCard(name, val, statusOverride) {
   spark.data.datasets[0].data = [...h];
   spark.update('none');
 
-  // Lưu lại để refresh alert panel
+  // Save state so the alert panel can be refreshed
   _sensorAlertState[name] = { val, fmt, status, cfg };
 }
 
-// Các label/unit hiển thị cho từng sensor
+// Display labels and units for each sensor group
 const _SENSOR_DISPLAY = {
   vibration:   { label: '⚡ Vibration',   sensors: 'sensor_00 ~ sensor_12', unit: 'mm/s', warnTxt: '> 4.5', critTxt: '> 6.5' },
   temperature: { label: '🌡 Temperature', sensors: 'sensor_13 ~ sensor_24', unit: '°C',   warnTxt: '> 85',  critTxt: '> 95'  },
@@ -978,7 +978,7 @@ function refreshAlertPanel() {
   panel.querySelector('div').style.color =
     bad.some(([,s])=>s.status==='CRITICAL') ? '#ef4444' : '#f59e0b';
 
-  // Log khi có sensor alert
+  // Log when a sensor alert fires
   const alertEntry = { sensors: Object.fromEntries(bad.map(([n,s])=>[n, s.fmt + _SENSOR_DISPLAY[n]?.unit])) };
   _appendLog('sensor_alert', alertEntry);
 
@@ -1045,7 +1045,7 @@ function processSensorUpdate(data) {
       updateSensorCard(name, val, statusOverride);
     }
   }
-  refreshAlertPanel(); // Cập nhật panel hiện sensor đang lỗi
+  refreshAlertPanel(); // Refresh panel to show currently faulting sensors
 
   // Health + overall
   updateHealthRing(data.health_score ?? 80);
@@ -1101,7 +1101,7 @@ function processSensorUpdate(data) {
     document.getElementById('tl-phase-mid-label').style.visibility = 'visible';
   }
 
-  // Auto email khi nhận real MQTT data có trạng thái bất ổn
+  // Auto-email when real MQTT data arrives with an abnormal status
   if (wsConnected && (os === 'CRITICAL' || os === 'BROKEN' || os === 'WARNING')) {
     const emailLevel = (os === 'CRITICAL' || os === 'BROKEN') ? 'CRITICAL' : 'WARNING';
     const now = Date.now();
@@ -1340,22 +1340,22 @@ function showWaitingState() {
 }
 
 function setOfflineMode() {
-  // Backend chưa chạy → Offline mode, operator controls vẫn hoạt động
+  // Backend not running → Offline mode, operator controls still functional
   document.getElementById('ws-dot').style.background = 'var(--cyan)';
   document.getElementById('ws-dot').style.animation = 'none';
   document.getElementById('ws-status').textContent = 'Offline';
   document.getElementById('ws-status').title =
-    'Backend chưa kết nối — Operator Controls vẫn hoạt động bình thường.\nĐể nhận live data: chạy uvicorn backend.server:app --port 8000';
+    'Backend not connected — Operator Controls are still fully functional.\nTo receive live data: run uvicorn backend.server:app --port 8000';
 }
 
 function connectWS() {
-  // Không thử kết nối nếu mở file:// (không có backend)
+  // Skip connection attempt when opened as file:// (no backend available)
   if (location.protocol === 'file:') { setOfflineMode(); return; }
 
   try { ws = new WebSocket(WS_URL); } catch(e) { setOfflineMode(); return; }
 
   const connectTimeout = setTimeout(() => {
-    // Nếu 2s không kết nối được → Offline mode, không báo lỗi
+    // If no connection within 2s → switch to Offline mode silently
     if (!wsConnected) { setOfflineMode(); }
   }, 2000);
 
@@ -1375,7 +1375,7 @@ function connectWS() {
     clearTimeout(connectTimeout);
     if (wsRetryCount === 0) setOfflineMode();
     wsRetryCount++;
-    // Thử lại âm thầm mỗi 5s, không thay đổi UI
+    // Retry silently every 5s, without changing the UI
     wsReconnectTimer = setTimeout(connectWS, 5000);
   };
 
@@ -1468,7 +1468,7 @@ async function sendEmailAlert(level) {
   const sensors = p?.sensors || { vibration: 5.8, temperature: 88, pressure: 9.1, flow_rate: 108 };
   const health  = p?.health_score ?? (level === 'CRITICAL' ? 18 : 52);
 
-  // Tính per-sensor status để highlight trong email
+  // Compute per-sensor status to highlight in the email
   const sensorSummary   = {};
   const sensorStatuses  = {};
   const defs = [
@@ -1485,7 +1485,7 @@ async function sendEmailAlert(level) {
       : (val >= d.crit ? 'CRITICAL' : val >= d.warn ? 'WARNING' : 'NORMAL');
   }
 
-  // Tạo message liệt kê sensor nào đang bất ổn
+  // Build a message listing which sensors are out of range
   const badSensors = defs
     .filter(d => sensorStatuses[d.label] !== 'NORMAL')
     .map(d => `${d.label} (${sensorStatuses[d.label]})`);

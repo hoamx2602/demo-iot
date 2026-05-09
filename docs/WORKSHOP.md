@@ -1,11 +1,11 @@
 # 🏭 PumpGuard AI — Workshop Guide
 
-> **Thời lượng:** 3–4 giờ | **Cấp độ:** Beginner–Intermediate  
-> **Mục tiêu:** Xây dựng hệ thống IoT giám sát máy bơm công nghiệp với AI từ đầu trên Google Colab.
+> **Duration:** 3–4 hours | **Level:** Beginner–Intermediate
+> **Objective:** Build a complete IoT industrial pump monitoring system with AI from scratch on Google Colab.
 
 ---
 
-## Tổng quan kiến trúc
+## Architecture Overview
 
 ```
 [sensor.csv]
@@ -31,72 +31,71 @@
                                        │
                                        ▼
                               [Dashboard HTML]
-                              (browser của học viên)
+                              (student's browser)
 ```
 
-### Tại sao chọn kiến trúc này?
+### Why this architecture?
 
-| Thành phần | Lý do chọn |
-|-----------|-----------|
-| **MQTT** | Giao thức chuẩn IoT — nhẹ, pub/sub, phù hợp sensor data |
-| **Mosquitto** | MQTT broker phổ biến nhất, miễn phí, cài được mọi nơi |
-| **Node-RED** | Visual programming — dễ thấy luồng data, không cần code nhiều |
-| **FastAPI** | Python, nhanh, có WebSocket built-in, tự sinh API docs |
-| **WebSocket** | Push real-time từ server → browser, không cần refresh |
-| **Gemini AI** | Miễn phí tier, JSON output, phù hợp phân tích kỹ thuật |
-| **Cloudflare Tunnel** | Expose localhost ra internet, không cần tài khoản |
+| Component | Reason |
+|-----------|--------|
+| **MQTT** | The IoT industry standard — lightweight, pub/sub, ideal for sensor data |
+| **Mosquitto** | The world's most widely used MQTT broker — free, runs anywhere |
+| **Node-RED** | Visual programming — data flow is visible, minimal coding required |
+| **FastAPI** | Python, fast, WebSocket built-in, auto-generates API docs |
+| **WebSocket** | Real-time push from server → browser without polling |
+| **Gemini AI** | Free tier available, JSON output, well-suited for technical analysis |
+| **Cloudflare Tunnel** | Expose localhost to the internet — no account required |
 
 ---
 
-## Chuẩn bị trước buổi học
+## Pre-Workshop Preparation
 
-### Học viên cần chuẩn bị
-- [ ] Tài khoản Google (để dùng Colab)
-- [ ] **Gemini API Key** miễn phí → [aistudio.google.com/apikey](https://aistudio.google.com/apikey)
-- [ ] Bộ code được giảng viên phát (zip file)
+### What students need
+- [ ] A Google account (for Colab)
+- [ ] **Gemini API Key** (free) → [aistudio.google.com/apikey](https://aistudio.google.com/apikey)
+- [ ] The code bundle provided by the instructor (zip file)
 
-### Bộ code gồm
+### Code bundle contents
 ```
 pumpguard/
 ├── backend/
-│   ├── server.py          ← FastAPI server (~700 dòng)
-│   ├── requirements.txt   ← Danh sách thư viện Python
-│   └── .env.example       ← Template biến môi trường
+│   ├── server.py          ← FastAPI server (~700 lines)
+│   ├── requirements.txt   ← Python dependencies list
+│   └── .env.example       ← Environment variable template
 ├── dashboard/
-│   └── index.html         ← Giao diện web real-time
+│   └── index.html         ← Real-time web interface
 ├── data/
-│   ├── sensor_groups.json ← Cấu hình ngưỡng sensor
-│   └── sensor.csv         ← Dữ liệu sensor thật (124MB)
+│   ├── sensor_groups.json ← Sensor threshold config
+│   └── sensor.csv         ← Real sensor dataset (124 MB)
 ├── scripts/
-│   └── mqtt_replay.py     ← Script phát lại dữ liệu CSV
+│   └── mqtt_replay.py     ← CSV replay script
 └── nodered/
-    └── flows.json         ← Node-RED flow (import sẵn)
+    └── flows.json         ← Node-RED flow (ready to import)
 ```
 
 ---
 
-## Phần 0 — Giới thiệu & Mở Colab (15 phút)
+## Part 0 — Introduction & Colab Setup (15 min)
 
-### Mục tiêu
-Hiểu bức tranh tổng thể và chuẩn bị môi trường làm việc.
+### Objective
+Understand the big picture and prepare the working environment.
 
-### Bước 0.1 — Mở Google Colab
-1. Vào [colab.research.google.com](https://colab.research.google.com)
+### Step 0.1 — Open Google Colab
+1. Go to [colab.research.google.com](https://colab.research.google.com)
 2. Click **"New notebook"**
-3. Đổi tên: click "Untitled0.ipynb" → gõ **PumpGuard_Workshop**
-4. Đảm bảo Runtime type là **Python 3** (Runtime menu → Change runtime type)
+3. Rename it: click "Untitled0.ipynb" → type **PumpGuard_Workshop**
+4. Confirm Runtime type is **Python 3** (Runtime menu → Change runtime type)
 
-### Bước 0.2 — Tạo cấu trúc thư mục
+### Step 0.2 — Create the directory structure
 
-**Tại sao cần làm bước này?**  
-Google Colab làm việc trong `/content/`. Mỗi file Python, HTML, config đều cần đúng chỗ để server có thể tìm thấy.
+**Why do this first?**
+Colab works inside `/content/`. Every Python file, HTML file, and config file must be in the right place so the server can find them.
 
-Tạo cell mới và chạy:
+Create a new cell and run:
 
 ```python
 import os
 
-# Tạo cấu trúc thư mục project
 folders = [
     '/content/pumpguard/backend',
     '/content/pumpguard/dashboard',
@@ -109,60 +108,60 @@ for folder in folders:
 
 os.chdir('/content/pumpguard')
 
-print("✅ Cấu trúc thư mục đã sẵn sàng:")
+print("✅ Directory structure ready:")
 for f in folders:
     print(f"   {f.replace('/content/pumpguard', '.')}/")
 ```
 
-**Giải thích:**
-- `os.makedirs(..., exist_ok=True)` — tạo thư mục, không báo lỗi nếu đã tồn tại
-- `os.chdir(...)` — chuyển working directory, để các lệnh sau không cần gõ đường dẫn đầy đủ
+**Explanation:**
+- `os.makedirs(..., exist_ok=True)` — creates the folder; no error if it already exists
+- `os.chdir(...)` — sets the working directory so subsequent commands don't need the full path
 
 ---
 
-## Phần 1 — MQTT: Xương sống IoT (30 phút)
+## Part 1 — MQTT: The Backbone of IoT (30 min)
 
-### Mục tiêu
-Hiểu giao thức MQTT và khởi động MQTT broker.
+### Objective
+Understand the MQTT protocol and start the MQTT broker.
 
-### Lý thuyết: MQTT là gì?
+### Theory: What is MQTT?
 
-**MQTT** (Message Queuing Telemetry Transport) là giao thức nhắn tin được thiết kế riêng cho IoT:
+**MQTT** (Message Queuing Telemetry Transport) is a messaging protocol designed specifically for IoT:
 
 ```
 Publisher                Broker              Subscriber
 (sensor/script)        (Mosquitto)          (backend)
 
-publish("pump/sensors", data) ──▶ [phân phối] ──▶ on_message(data)
+publish("pump/sensors", data) ──▶ [route] ──▶ on_message(data)
 ```
 
-**Tại sao không dùng REST API thay vì MQTT?**
+**Why not use REST API instead of MQTT?**
 
 | | REST API | MQTT |
 |---|---|---|
-| Kết nối | Pull (client hỏi server) | Push (server gửi client) |
-| Overhead | Header HTTP lớn | Rất nhỏ (2 byte header) |
-| Nhiều subscriber | Không tự nhiên | Built-in (1 publish → nhiều subscriber) |
-| Phù hợp IoT | ❌ | ✅ |
+| Connection model | Pull (client requests server) | Push (server sends to client) |
+| Overhead | Large HTTP headers | Very small (2-byte header) |
+| Multiple subscribers | Not native | Built-in (1 publish → many subscribers) |
+| Suited for IoT | ❌ | ✅ |
 
-**Khái niệm quan trọng:**
-- **Topic**: "kênh" của message, dạng path. VD: `pump/sensors`, `pump/alerts`
-- **QoS 1**: đảm bảo message đến ít nhất 1 lần (không mất)
-- **Broker**: server trung gian — nhận publish, phân phối đến subscribers
+**Key concepts:**
+- **Topic**: message "channel", path-style. e.g. `pump/sensors`, `pump/alerts`
+- **QoS 1**: guaranteed delivery — message arrives at least once
+- **Broker**: the intermediary server — receives publishes and routes to subscribers
 
-### Bước 1.1 — Cài Mosquitto
+### Step 1.1 — Install Mosquitto
 
 ```bash
 !apt-get install -y -q mosquitto
 !mosquitto --version
 ```
 
-**Tại sao Mosquitto?**  
-Mosquitto là MQTT broker phổ biến nhất thế giới — nhẹ (~1MB RAM), mã nguồn mở, chuẩn MQTT 3.1.1 và 5.0, được dùng trong cả sản xuất công nghiệp lẫn Raspberry Pi.
+**Why Mosquitto?**
+Mosquitto is the most widely deployed MQTT broker in the world — lightweight (~1 MB RAM), open source, supports MQTT 3.1.1 and 5.0, used in both industrial production and on Raspberry Pis.
 
-### Bước 1.2 — Tạo config và khởi động
+### Step 1.2 — Create config and start the broker
 
-**Tạo file config** — cho phép kết nối không cần username/password (phù hợp lab):
+**Create the config file** — allows anonymous connections (suitable for a lab environment):
 
 ```bash
 %%writefile /tmp/mosquitto.conf
@@ -170,7 +169,7 @@ listener 1883
 allow_anonymous true
 ```
 
-**Khởi động broker** trong background:
+**Start the broker** in the background:
 
 ```python
 import subprocess, time
@@ -184,16 +183,16 @@ proc = subprocess.Popen(
 )
 time.sleep(1)
 
-print(f"✅ Mosquitto running (PID {proc.pid}) — localhost:1883" if proc.poll() is None else "❌ Lỗi khởi động")
+print(f"✅ Mosquitto running (PID {proc.pid}) — localhost:1883" if proc.poll() is None else "❌ Failed to start")
 ```
 
-**Giải thích config:**
-- `listener 1883` — lắng nghe trên port 1883 (chuẩn MQTT)
-- `allow_anonymous true` — cho phép kết nối không cần auth (chỉ dùng trong lab/dev)
+**Config explained:**
+- `listener 1883` — listen on port 1883 (the MQTT standard port)
+- `allow_anonymous true` — allow connections without credentials (lab/dev only)
 
-### Bước 1.3 — Test MQTT (Publish & Subscribe)
+### Step 1.3 — Test MQTT (Publish & Subscribe)
 
-Đây là bước quan trọng để **hiểu cách MQTT hoạt động** trước khi tích hợp vào hệ thống.
+This step is essential for **understanding how MQTT works** before integrating it into the system.
 
 ```python
 import paho.mqtt.client as mqtt
@@ -205,12 +204,12 @@ received_messages = []
 def on_connect(client, userdata, flags, rc):
     if rc == 0:
         client.subscribe("pump/test", qos=1)
-        print("📡 Subscriber đã kết nối và lắng nghe topic 'pump/test'")
+        print("📡 Subscriber connected and listening on topic 'pump/test'")
 
 def on_message(client, userdata, msg):
     data = json.loads(msg.payload.decode())
     received_messages.append(data)
-    print(f"📨 Nhận được: {json.dumps(data, ensure_ascii=False)}")
+    print(f"📨 Received: {json.dumps(data)}")
 
 sub = mqtt.Client(client_id="test-subscriber", protocol=mqtt.MQTTv311)
 sub.on_connect = on_connect
@@ -230,7 +229,7 @@ test_data = {
     "status": "NORMAL"
 }
 
-print(f"\n📤 Publisher gửi: {json.dumps(test_data, ensure_ascii=False)}")
+print(f"\n📤 Publisher sending: {json.dumps(test_data)}")
 pub.publish("pump/test", json.dumps(test_data), qos=1)
 
 time.sleep(0.5)
@@ -238,63 +237,62 @@ pub.disconnect()
 sub.loop_stop()
 sub.disconnect()
 
-print(f"\n✅ MQTT hoạt động! Đã gửi 1 message, nhận {len(received_messages)} message")
+print(f"\n✅ MQTT working! Sent 1 message, received {len(received_messages)} message(s)")
 ```
 
-**Quan sát:** Publisher và Subscriber không biết nhau — họ chỉ biết broker và topic. Đây là **decoupled architecture** — cốt lõi của IoT.
-
+**Observe:** Publisher and Subscriber don't know about each other — they only know the broker and the topic. This is **decoupled architecture** — the foundation of IoT.
 
 ---
 
-## Phần 2 — FastAPI Backend: Từng file một (45 phút)
+## Part 2 — FastAPI Backend: File by File (45 min)
 
-### Mục tiêu
-Hiểu cấu trúc backend và đưa từng file vào đúng chỗ.
+### Objective
+Understand the backend structure and place each file in the right location.
 
-### Lý thuyết: FastAPI + WebSocket
+### Theory: FastAPI + WebSocket
 
-**FastAPI** là Python web framework hiện đại:
-- Nhanh (tương đương NodeJS/Go)
-- Tự sinh API docs tại `/docs`
-- Built-in WebSocket support
-- Dùng type hints → ít bug
+**FastAPI** is a modern Python web framework:
+- Fast (on par with Node.js/Go)
+- Auto-generates API docs at `/docs`
+- WebSocket support built in
+- Type hints → fewer bugs
 
-**WebSocket** khác REST API:
+**WebSocket vs REST API:**
 ```
-REST:    Browser ──request──▶ Server ──response──▶ Browser  (1 chiều mỗi lần)
-WebSocket: Browser ◀──────────────── Server  (2 chiều, kết nối liên tục)
+REST:      Browser ──request──▶ Server ──response──▶ Browser  (one-way per request)
+WebSocket: Browser ◀──────────────────────────────── Server  (bidirectional, persistent)
 ```
 
-Dashboard cần WebSocket vì: sensor gửi data mỗi giây, không thể cứ 1 giây browser lại gửi 1 HTTP request.
+The dashboard needs WebSocket because sensors send data every second — the browser cannot make 1 HTTP request per second.
 
 ---
 
-### Bước 2.1 — Copy `requirements.txt`
+### Step 2.1 — Upload `requirements.txt`
 
-**Mục đích:** Liệt kê tất cả thư viện Python mà server.py cần dùng.
+**Purpose:** List all Python libraries that server.py depends on.
 
-**Cách upload lên Colab:**
-1. Ở bên trái Colab, click biểu tượng 📁 (Files)
-2. Điều hướng đến `/content/pumpguard/backend/`
-3. Click nút **↑ Upload** → chọn file `requirements.txt`
+**How to upload to Colab:**
+1. In the left panel, click the 📁 icon (Files)
+2. Navigate to `/content/pumpguard/backend/`
+3. Click **↑ Upload** → select `requirements.txt`
 
-Sau khi upload, kiểm tra nội dung:
+After uploading, verify:
 
 ```python
 print(open('/content/pumpguard/backend/requirements.txt').read())
 ```
 
-**Giải thích từng package:**
+**Package overview:**
 ```
-fastapi          ← Web framework chính
-uvicorn          ← ASGI server chạy FastAPI (như Gunicorn cho WSGI)
-paho-mqtt        ← MQTT client library cho Python
+fastapi          ← main web framework
+uvicorn          ← ASGI server that runs FastAPI
+paho-mqtt        ← MQTT client library for Python
 google-generativeai ← Gemini AI SDK
-python-dotenv    ← Đọc file .env vào os.environ
-httpx            ← HTTP client async (dùng cho gọi AI API)
+python-dotenv    ← reads .env file into os.environ
+httpx            ← async HTTP client (used for AI API calls)
 ```
 
-Cài tất cả:
+Install all:
 
 ```bash
 !pip install -q -r /content/pumpguard/backend/requirements.txt
@@ -302,34 +300,34 @@ Cài tất cả:
 
 ---
 
-### Bước 2.2 — Copy `data/sensor_groups.json`
+### Step 2.2 — Upload `data/sensor_groups.json`
 
-**Mục đích:** File cấu hình định nghĩa ngưỡng bình thường/cảnh báo cho từng sensor.  
-Node-RED và Backend đều đọc file này.
+**Purpose:** Config file defining normal/warning/critical thresholds for each sensor group.
+Both Node-RED and the backend read this file.
 
-**Upload:** Vào `/content/pumpguard/data/` → Upload `sensor_groups.json`
+**Upload:** Navigate to `/content/pumpguard/data/` → Upload `sensor_groups.json`
 
-Kiểm tra:
+Verify:
 
 ```python
 import json
 cfg = json.load(open('/content/pumpguard/data/sensor_groups.json'))
-print("Sensors được cấu hình:")
-for name, info in cfg.items():
-    print(f"  {name}: warning={info.get('warning_threshold')}, critical={info.get('critical_threshold')}")
+print("Configured sensor groups:")
+for name, info in cfg.get('groups', {}).items():
+    t = info.get('thresholds', {})
+    print(f"  {name}: warning={t.get('warning')}, critical={t.get('critical')}")
 ```
 
 ---
 
-### Bước 2.3 — Tạo file `.env` (cấu hình API key)
+### Step 2.3 — Create the `.env` file (API key config)
 
-**Mục đích:** Lưu thông tin nhạy cảm (API key) ra ngoài code.  
-**Tại sao không hardcode trong code?** Vì code được commit lên Git — nếu hardcode key sẽ bị lộ.
+**Purpose:** Store sensitive credentials (API keys) outside the code.
+**Why not hardcode in code?** Code is committed to Git — hardcoded keys get exposed.
 
 ```python
-# Điền Gemini API key của bạn vào đây
-# Lấy miễn phí tại: https://aistudio.google.com/apikey
-GEMINI_API_KEY = "AIzaSy-xxxx"   # ← THAY BẰNG KEY THẬT
+# Get a free Gemini key at: https://aistudio.google.com/apikey
+GEMINI_API_KEY = "AIzaSy-xxxx"   # ← REPLACE WITH YOUR REAL KEY
 
 env_content = f"""# AI Provider
 AI_PROVIDER=gemini
@@ -343,66 +341,64 @@ MQTT_PORT=1883
 with open('/content/pumpguard/backend/.env', 'w') as f:
     f.write(env_content)
 
-# Kiểm tra (không in key ra màn hình — bảo mật)
+# Verify without printing the key
 if GEMINI_API_KEY.startswith("AIzaSy") and len(GEMINI_API_KEY) > 20:
-    print(f"✅ .env đã tạo với key hợp lệ: {GEMINI_API_KEY[:14]}...")
+    print(f"✅ .env created with valid key: {GEMINI_API_KEY[:14]}...")
 else:
-    print("⚠️  Hãy điền API key thật — hệ thống sẽ chạy nhưng AI dùng mock data")
+    print("⚠️  Enter your real API key — the system will run but AI will use mock data")
 ```
 
 ---
 
-### Bước 2.4 — Copy `backend/server.py`
+### Step 2.4 — Upload `backend/server.py`
 
-**Mục đích:** Đây là "bộ não" của hệ thống — FastAPI server với WebSocket, MQTT bridge, và AI integration.
+**Purpose:** The brain of the system — FastAPI server with WebSocket, MQTT bridge, and AI integration.
 
-**Upload:** Vào `/content/pumpguard/backend/` → Upload `server.py`
+**Upload:** Navigate to `/content/pumpguard/backend/` → Upload `server.py`
 
-Sau khi upload, xem qua cấu trúc:
+After uploading, inspect the structure:
 
 ```python
-# Xem cấu trúc file
 lines = open('/content/pumpguard/backend/server.py').readlines()
-print(f"Tổng số dòng: {len(lines)}")
+print(f"Total lines: {len(lines)}")
 
-# In ra phần config và các endpoint chính
 import re
 for i, line in enumerate(lines, 1):
     if any(x in line for x in ['def ', 'class ', '@app.', '# ──']):
         print(f"  Line {i:4d}: {line.rstrip()}")
 ```
 
-**Kiến trúc server.py:**
+**server.py architecture:**
 ```
 server.py
-├── Config        ← đọc .env (AI key, MQTT host/port)
-├── ConnectionManager ← quản lý WebSocket clients
-├── MQTTBridge    ← subscribe MQTT → broadcast WebSocket
+├── Config            ← reads .env (AI key, MQTT host/port)
+├── ConnectionManager ← manages WebSocket clients
+├── MQTTBridge        ← subscribes MQTT → broadcasts to WebSocket
 ├── FastAPI app
-│   ├── GET /health     ← kiểm tra server
-│   ├── WS  /ws         ← WebSocket endpoint
-│   ├── POST /analyze   ← gọi AI phân tích
-│   └── /dashboard/     ← serve HTML tĩnh
-└── AI functions  ← gọi Gemini/Claude/OpenAI
+│   ├── GET /health   ← status check
+│   ├── WS  /ws       ← WebSocket endpoint
+│   ├── POST /analyze ← call AI for analysis
+│   └── /dashboard/   ← serve static HTML
+└── AI functions      ← call Gemini/Claude/OpenAI
 ```
 
 ---
 
-### Bước 2.5 — Copy `dashboard/index.html`
+### Step 2.5 — Upload `dashboard/index.html`
 
-**Mục đích:** Giao diện web hiển thị data real-time từ WebSocket.
+**Purpose:** The web interface that displays real-time data over WebSocket.
 
-**Upload:** Vào `/content/pumpguard/dashboard/` → Upload `index.html`
+**Upload:** Navigate to `/content/pumpguard/dashboard/` → Upload `index.html`
 
 ```python
 size = os.path.getsize('/content/pumpguard/dashboard/index.html')
 print(f"✅ Dashboard: {size:,} bytes ({size//1024} KB)")
-print("   Gồm: HTML structure + CSS styling + JavaScript WebSocket client")
+print("   Contains: HTML structure + CSS styling + JavaScript WebSocket client")
 ```
 
 ---
 
-### Bước 2.6 — Kiểm tra tất cả file
+### Step 2.6 — Verify all files
 
 ```python
 import os
@@ -416,7 +412,7 @@ files_to_check = {
     'scripts/mqtt_replay.py': 'Data replay script (optional)',
 }
 
-print("📋 Kiểm tra file:")
+print("📋 File check:")
 all_ok = True
 for filepath, desc in files_to_check.items():
     full = f'/content/pumpguard/{filepath}'
@@ -430,30 +426,29 @@ for filepath, desc in files_to_check.items():
             all_ok = False
 
 print()
-print("✅ Sẵn sàng khởi động backend!" if all_ok else "❌ Upload các file còn thiếu.")
+print("✅ Ready to start the backend!" if all_ok else "❌ Upload the missing files before continuing.")
 ```
 
 ---
 
-### Bước 2.7 — Khởi động Backend
+### Step 2.7 — Start the Backend
 
 ```python
 import subprocess, sys, os, time, requests
 
 os.chdir('/content/pumpguard')
 
-# Đọc .env vào environment variables
+# Load .env into environment variables
 env_vars = {}
 for line in open('backend/.env').read().splitlines():
     if '=' in line and not line.startswith('#'):
         k, v = line.split('=', 1)
         env_vars[k.strip()] = v.strip()
 
-# Dừng instance cũ
+# Stop any existing instance
 subprocess.run(['pkill', '-f', 'uvicorn'], capture_output=True)
 time.sleep(1)
 
-# Start backend
 log = open('/tmp/backend.log', 'w')
 proc = subprocess.Popen(
     [sys.executable, '-m', 'uvicorn', 'backend.server:app',
@@ -462,52 +457,51 @@ proc = subprocess.Popen(
     env={**os.environ, **env_vars}
 )
 
-print("⏳ Khởi động backend", end='')
+print("⏳ Starting backend", end='')
 for _ in range(20):
     time.sleep(1)
     try:
         r = requests.get('http://localhost:8000/health', timeout=2)
         if r.status_code == 200:
             d = r.json()
-            print(f"\n✅ Backend đang chạy! (PID {proc.pid})")
+            print(f"\n✅ Backend running! (PID {proc.pid})")
             print(f"   AI Provider : {d.get('ai_provider')}")
-            print(f"   API Key     : {'✅ OK' if d.get('api_key_configured') else '❌ Chưa set'}")
+            print(f"   API Key     : {'✅ OK' if d.get('api_key_configured') else '❌ Not set'}")
             break
     except:
         print('.', end='', flush=True)
 else:
-    print("\n❌ Lỗi. Xem log:")
+    print("\n❌ Failed. Check log:")
     print(open('/tmp/backend.log').read()[-2000:])
 ```
 
-### Bước 2.8 — Test API bằng curl
+### Step 2.8 — Test the API
 
-FastAPI tự sinh API docs tại `/docs`. Test thử endpoint `/analyze`:
+FastAPI auto-generates API docs at `/docs`. Test the `/analyze` endpoint:
 
 ```python
 import requests, json
 
-# Gửi snapshot sensor giả lập để test AI
 test_payload = {
     "snapshot": {
         "machine_status": "WARNING",
         "health_score": 42.5,
         "overall_status": "WARNING",
         "sensors": {
-            "vibration": {"current": 6.8, "status": "WARNING", "trending": "DEGRADING"},
-            "temperature": {"current": 91.2, "status": "WARNING", "trending": "STABLE"},
-            "pressure": {"current": 5.1, "status": "NORMAL", "trending": "STABLE"},
-            "flow_rate": {"current": 118.0, "status": "NORMAL", "trending": "STABLE"},
+            "vibration":   {"current": 6.8,   "status": "WARNING", "trending": "DEGRADING"},
+            "temperature": {"current": 91.2,  "status": "WARNING", "trending": "STABLE"},
+            "pressure":    {"current": 5.1,   "status": "NORMAL",  "trending": "STABLE"},
+            "flow_rate":   {"current": 118.0, "status": "NORMAL",  "trending": "STABLE"},
         }
     }
 }
 
-print("🤖 Gọi AI phân tích sensor...")
+print("🤖 Calling AI analysis...")
 r = requests.post('http://localhost:8000/analyze', json=test_payload, timeout=30)
 
 if r.status_code == 200:
     result = r.json()
-    print(f"\n📊 Kết quả AI:")
+    print(f"\n📊 AI Result:")
     print(f"  Risk Level   : {result.get('risk_level')}")
     print(f"  Confidence   : {result.get('confidence', 0)*100:.0f}%")
     print(f"  Summary      : {result.get('summary')}")
@@ -515,35 +509,35 @@ if r.status_code == 200:
     if result.get('recommended_actions'):
         print(f"  Action #1    : {result['recommended_actions'][0].get('action')}")
 else:
-    print(f"❌ Lỗi HTTP {r.status_code}: {r.text[:300]}")
+    print(f"❌ HTTP {r.status_code}: {r.text[:300]}")
 ```
 
 ---
 
-## Phần 3 — Node-RED: Visual Data Pipeline (45 phút)
+## Part 3 — Node-RED: Visual Data Pipeline (45 min)
 
-### Mục tiêu
-Cài Node-RED trên Colab, import flow có sẵn, hiểu từng node xử lý data.
+### Objective
+Install Node-RED on Colab, import the pre-built flow, and understand each processing node.
 
-### Lý thuyết: Node-RED là gì?
+### Theory: What is Node-RED?
 
-**Node-RED** là công cụ visual programming cho IoT do IBM phát triển:
-- Kéo thả các "node" để tạo luồng xử lý data
-- Mỗi node làm 1 việc cụ thể: nhận MQTT, xử lý, gọi API, gửi WebSocket
-- Không cần code nhiều — phù hợp cho prototyping và giảng dạy
+**Node-RED** is a visual programming tool for IoT developed by IBM:
+- Drag and drop "nodes" to build data processing flows
+- Each node does one specific thing: receive MQTT, process data, call an API, push to WebSocket
+- Minimal coding required — ideal for prototyping and teaching
 
-**Tại sao dùng Node-RED trong hệ thống này?**
+**Why use Node-RED in this system?**
 
-Thay vì viết Python code để:
-1. Subscribe MQTT
+Instead of writing Python code to:
+1. Subscribe to MQTT
 2. Validate data
-3. Tính rolling average
-4. Detect anomaly
-5. Gọi AI API
+3. Compute a rolling average
+4. Detect anomalies
+5. Call the AI API
 
-→ Node-RED làm tất cả bằng giao diện kéo thả, dễ debug từng bước.
+→ Node-RED does all of this via a drag-and-drop interface that is easy to debug step by step.
 
-**Flow trong hệ thống:**
+**The flow in this system:**
 ```
 [MQTT in] → [Parse & Validate] → [Rolling Buffer 60 readings]
                → [Compute Trends & Stats] → [Route: NORMAL/ANOMALY]
@@ -556,97 +550,90 @@ Thay vì viết Python code để:
                                             [WS → Dashboard]
 ```
 
-### Bước 3.1 — Cài Node.js và Node-RED
+### Step 3.1 — Install Node.js and Node-RED
 
 ```bash
-# Bước 1: Thêm repo Node.js 20 LTS và cài đặt
+# Step 1: Add Node.js 20 LTS repo and install
 !curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
 !apt-get install -y -q nodejs
 !node --version
 ```
 
 ```bash
-# Bước 2: Cài Node-RED globally (mất 1-2 phút)
+# Step 2: Install Node-RED globally (takes 1–2 minutes)
 !npm install -g --unsafe-perm --silent node-red
 !node-red --version
 ```
 
-### Bước 3.2 — Copy `nodered/flows.json`
+### Step 3.2 — Upload `nodered/flows.json`
 
-**Upload:** Vào `/content/pumpguard/nodered/` → Upload `flows.json`
+**Upload:** Navigate to `/content/pumpguard/nodered/` → Upload `flows.json`
 
 ```python
 import json
 flows = json.load(open('/content/pumpguard/nodered/flows.json'))
-print(f"✅ flows.json hợp lệ — {len(flows)} nodes")
+print(f"✅ flows.json valid — {len(flows)} nodes")
 node_types = set(n.get('type') for n in flows if 'type' in n)
-print(f"   Loại nodes: {', '.join(sorted(node_types))}")
+print(f"   Node types: {', '.join(sorted(node_types))}")
 ```
 
-### Bước 3.3 — Khởi động Node-RED
+### Step 3.3 — Start Node-RED
 
 ```python
 import subprocess, time, os
 
-# Tạo thư mục config Node-RED
 nr_home = '/root/.node-red'
 os.makedirs(nr_home, exist_ok=True)
 
-# Copy flows.json vào thư mục Node-RED
 import shutil
 shutil.copy('/content/pumpguard/nodered/flows.json', f'{nr_home}/flows.json')
 
-# Dừng instance cũ
 subprocess.run(['pkill', '-f', 'node-red'], capture_output=True)
 time.sleep(1)
 
-# Khởi động Node-RED
 log = open('/tmp/nodered.log', 'w')
 proc = subprocess.Popen(
     ['node-red', '--port', '1880', '--userDir', nr_home],
     stdout=log, stderr=subprocess.STDOUT
 )
 
-print("⏳ Khởi động Node-RED", end='')
+print("⏳ Starting Node-RED", end='')
 for _ in range(20):
     time.sleep(2)
     try:
         r = requests.get('http://localhost:1880', timeout=3)
         if r.status_code == 200:
-            print(f"\n✅ Node-RED đang chạy! (PID {proc.pid})")
+            print(f"\n✅ Node-RED running! (PID {proc.pid})")
             print(f"   UI: http://localhost:1880")
             break
     except:
         print('.', end='', flush=True)
 else:
-    print("\n❌ Lỗi. Xem log:")
+    print("\n❌ Failed. Check log:")
     print(open('/tmp/nodered.log').read()[-1500:])
 ```
 
-### Bước 3.4 — Expose Node-RED ra public URL (port 1880)
+### Step 3.4 — Expose Node-RED via public URL
 
 ```python
 import subprocess, time, re
 
-# Dừng tunnel cũ
 subprocess.run(['pkill', '-f', 'cloudflared'], capture_output=True)
 time.sleep(1)
 
-# Tunnel cho backend (port 8000)
 log_be = open('/tmp/cf_backend.log', 'w')
 subprocess.Popen(
     ['cloudflared', 'tunnel', '--url', 'http://localhost:8000', '--no-autoupdate'],
     stdout=log_be, stderr=subprocess.STDOUT
 )
 
-# Tunnel cho Node-RED (port 1880)
 log_nr = open('/tmp/cf_nodered.log', 'w')
 subprocess.Popen(
     ['cloudflared', 'tunnel', '--url', 'http://localhost:1880', '--no-autoupdate'],
     stdout=log_nr, stderr=subprocess.STDOUT
 )
 
-print("⏳ Đợi Cloudflare tạo URLs", end='')
+print("⏳ Waiting for Cloudflare URLs", end='')
 be_url = nr_url = None
 for _ in range(30):
     time.sleep(2)
@@ -661,7 +648,7 @@ for _ in range(30):
 
 print()
 print("=" * 62)
-print("🎉  HỆ THỐNG ĐANG CHẠY!")
+print("🎉  SYSTEM IS LIVE!")
 print("=" * 62)
 if be_url:
     print(f"\n🌐  Dashboard  →  {be_url}/dashboard/")
@@ -671,61 +658,61 @@ if nr_url:
 print("=" * 62)
 ```
 
-### Bước 3.5 — Khám phá Node-RED UI
+### Step 3.5 — Explore the Node-RED UI
 
-Mở URL Node-RED trên browser. Bạn sẽ thấy flow đã được import sẵn.
+Open the Node-RED URL in your browser. You will see the pre-imported flow.
 
-**Giải thích từng node trong flow:**
+**Node descriptions:**
 
-| Node | Loại | Mục đích |
+| Node | Type | Purpose |
 |------|------|---------|
-| **Subscribe pump/sensors** | MQTT in | Lắng nghe topic, nhận raw data từ sensor |
-| **Parse & Validate** | Function | Kiểm tra cấu trúc JSON hợp lệ, thêm timestamp |
-| **Rolling Buffer (60)** | Function | Giữ 60 readings gần nhất trong context |
-| **Compute Trends & Stats** | Function | Tính avg, slope, std dev, phát hiện trend |
-| **If NORMAL / If ANOMALY** | Switch | Phân luồng xử lý theo trạng thái |
-| **Throttle AI (1/10s)** | Delay | Giới hạn tần suất gọi AI — tránh spam API |
-| **Build AI Payload** | Function | Chuẩn bị dữ liệu compact để gửi AI |
-| **POST → /analyze** | HTTP Request | Gọi FastAPI backend để AI phân tích |
-| **WS → Dashboard** | WebSocket out | Push kết quả đến browser real-time |
+| **Subscribe pump/sensors** | MQTT in | Listen on the topic, receive raw sensor data |
+| **Parse & Validate** | Function | Validate JSON structure, add timestamp |
+| **Rolling Buffer (60)** | Function | Keep the last 60 readings in context |
+| **Compute Trends & Stats** | Function | Calculate avg, slope, std dev, detect trend |
+| **If NORMAL / If ANOMALY** | Switch | Route messages based on status |
+| **Throttle AI (1/10s)** | Delay | Limit AI call frequency — avoid API quota waste |
+| **Build AI Payload** | Function | Package compact data for the AI call |
+| **POST → /analyze** | HTTP Request | Call FastAPI backend for AI analysis |
+| **WS → Dashboard** | WebSocket out | Push results to the browser in real time |
 
-**Tại sao cần Rolling Buffer?**  
-Một điểm data đơn lẻ không đủ để phát hiện trend. 60 readings × 1s = 60 giây gần nhất cho phép tính được:
-- Slope (xu hướng tăng/giảm)
-- Standard deviation (độ ổn định)
-- Rate of change (tốc độ thay đổi)
+**Why a Rolling Buffer?**
+A single data point is not enough to detect a trend. 60 readings × ~1 s = the last ~60 seconds, enabling calculation of:
+- Slope (rising or falling trend)
+- Standard deviation (signal stability)
+- Rate of change (speed of change)
 
-**Tại sao Throttle AI?**  
-Gemini free tier có rate limit. Nếu anomaly kéo dài 60 giây, không cần gọi AI 60 lần — 1 lần mỗi 10 giây là đủ.
+**Why throttle AI calls?**
+Gemini's free tier has a rate limit. If an anomaly lasts 60 seconds, there is no need to call the AI 60 times — once every 10 seconds is sufficient.
 
 ---
 
-## Phần 4 — Chạy Data Replay & Xem Demo (20 phút)
+## Part 4 — Data Replay & Live Demo (20 min)
 
-### Bước 4.1 — Copy `scripts/mqtt_replay.py`
+### Step 4.1 — Upload `scripts/mqtt_replay.py`
 
-**Upload:** Vào `/content/pumpguard/scripts/` → Upload `mqtt_replay.py`
+**Upload:** Navigate to `/content/pumpguard/scripts/` → Upload `mqtt_replay.py`
 
-**Mục đích:** Script đọc `sensor.csv` (dữ liệu thật) và publish lên MQTT từng dòng một, mô phỏng sensor thật đang gửi data.
+**Purpose:** Reads `sensor.csv` (real data) and publishes it to MQTT one row at a time, simulating a real sensor device.
 
-### Bước 4.2 — Copy `data/sensor.csv` *(nếu có)*
+### Step 4.2 — Upload `data/sensor.csv` *(if available)*
 
-> ⚠️ File lớn (~124MB). Upload mất 1-2 phút.
+> ⚠️ Large file (~124 MB). Upload takes 1–2 minutes.
 
-**Nếu không có CSV:** Dùng **Operator Controls** trên dashboard (nút ⚙ góc phải).
+**If you don't have the CSV:** Use the **Operator Controls** on the dashboard (⚙ button, top-right).
 
-### Bước 4.3 — Chạy data replay
+### Step 4.3 — Run data replay
 
-> ⚠️ Cell này chạy **liên tục** — nhấn ⏹ để dừng.
+> ⚠️ This cell runs **continuously** — press ⏹ to stop.
 
 ```python
 import os, sys
 os.chdir('/content/pumpguard')
 
 if os.path.exists('data/sensor.csv') and os.path.exists('data/sensor_groups.json'):
-    print("▶ Stream dữ liệu sensor lên dashboard...")
-    print("  compression=360: 1 phút data = 1/6 giây demo")
-    print("  start-at-anomaly: bắt đầu gần điểm bất thường để demo nhanh")
+    print("▶ Streaming sensor data to dashboard...")
+    print("  compression=360: 1 minute of data = 1/6 second in demo")
+    print("  start-at-anomaly: begin near the degradation point for a fast demo")
     print("-" * 50)
     os.system(
         f"{sys.executable} scripts/mqtt_replay.py "
@@ -735,50 +722,50 @@ if os.path.exists('data/sensor.csv') and os.path.exists('data/sensor_groups.json
         "--compression 360"
     )
 else:
-    print("ℹ️  Không có sensor.csv")
-    print("   → Mở Dashboard → click ⚙ → chọn '⚠ Simulate Anomaly'")
-    print("   AI sẽ tự động phân tích sau ~30 giây")
+    print("ℹ️  No sensor.csv found")
+    print("   → Open Dashboard → click ⚙ → select '⚠ Simulate Anomaly'")
+    print("   AI will analyse automatically after ~30 seconds")
 ```
 
-### Bước 4.4 — Quan sát trên Dashboard
+### Step 4.4 — Observe the Dashboard
 
-Mở URL Dashboard trên browser. Các tab cần chú ý:
+Open the Dashboard URL in your browser. Key tabs to watch:
 
-| Tab | Hiển thị |
-|-----|---------|
-| **Overview** | Health score tổng thể, trạng thái máy, 4 sensor chính |
-| **Sensor Status** | Heatmap tất cả sensor, chọn từng sensor để xem chi tiết |
-| **AI Recommendations** | Kết quả phân tích từ Gemini: risk, actions, cost impact |
-| **Alerts** | Lịch sử cảnh báo |
+| Tab | Shows |
+|-----|-------|
+| **Overview** | Overall health score, machine status, 4 sensor cards |
+| **Sensor Status** | All sensor readings, click any sensor for detail |
+| **AI Recommendations** | Gemini analysis: risk level, actions, cost impact |
+| **Alerts** | Alert history |
 
-**Để trigger AI phân tích nhanh:**
-1. Click **⚙ Operator Controls** (góc phải)
-2. Chọn **"⚠ Simulate Anomaly"** hoặc **"🔴 Simulate Critical"**
-3. Chuyển sang tab **AI Recommendations** — kết quả xuất hiện sau ~10-30 giây
+**To trigger AI analysis quickly:**
+1. Click **⚙ Operator Controls** (top-right)
+2. Select **"⚠ Simulate Anomaly"** or **"🔴 Simulate Critical"**
+3. Switch to **AI Recommendations** — result appears in ~10–30 s
 
 ---
 
 ## Troubleshooting
 
-| Vấn đề | Nguyên nhân | Giải pháp |
-|--------|-------------|-----------|
-| Backend lỗi khi start | File thiếu hoặc import error | Kiểm tra lại file đã upload đúng chưa |
-| AI chỉ hiện `[MOCK]` | Chưa điền API key | Chạy lại Bước 2.3 với key thật |
-| Node-RED không import flow | flows.json đặt sai chỗ | Đảm bảo copy vào `~/.node-red/flows.json` |
-| Dashboard không kết nối WS | URL tunnel đã reset | Chạy lại bước Cloudflare |
-| Colab bị ngắt sau ~1.5h | Runtime timeout | Chạy lại từ Phần 1 Bước 1.2 |
-| MQTT không nhận data | Replay chưa chạy | Chạy Phần 4 hoặc dùng Operator Controls |
+| Problem | Cause | Solution |
+|---------|-------|---------|
+| Backend fails to start | Missing file or import error | Re-check that all files are uploaded correctly |
+| AI shows `[MOCK]` | API key not set | Re-run Step 2.3 with a real key |
+| Node-RED flow not imported | flows.json in wrong location | Ensure it is copied to `~/.node-red/flows.json` |
+| Dashboard WebSocket not connecting | Tunnel URL has reset | Re-run the Cloudflare step |
+| Colab session disconnects (~1.5 h) | Runtime timeout | Re-run from Part 1 Step 1.2 |
+| No MQTT data | Replay not running | Run Part 4 or use Operator Controls |
 
-### Lệnh debug nhanh
+### Quick debug commands
 
 ```python
-# Xem log backend
+# View backend log
 print(open('/tmp/backend.log').read()[-3000:])
 
-# Xem log Node-RED
+# View Node-RED log
 print(open('/tmp/nodered.log').read()[-2000:])
 
-# Kiểm tra services đang chạy
+# Check running services
 import subprocess
 out = subprocess.run(['ps', 'aux'], capture_output=True, text=True).stdout
 for svc in ['mosquitto', 'uvicorn', 'node-red', 'cloudflared']:
@@ -786,30 +773,30 @@ for svc in ['mosquitto', 'uvicorn', 'node-red', 'cloudflared']:
     print(f"  {'✅' if running else '❌'} {svc}")
 ```
 
-### Restart nhanh sau timeout
+### Quick restart after Colab timeout
 
-Khi Colab Runtime bị ngắt, chạy lại các bước theo thứ tự:
-1. ✅ Không cần: Bước 0 (tạo thư mục) và Bước 2.1-2.5 (upload file)
-2. 🔄 Chạy lại: Phần 1 Bước 1.2 (MQTT) → Phần 2 Bước 2.7 (Backend) → Phần 3 Bước 3.3 (Node-RED) → Cloudflare
+When the Colab Runtime disconnects:
+1. ✅ Skip: Part 0 (directories) and Steps 2.1–2.5 (file uploads) — files are preserved
+2. 🔄 Re-run: Part 1 Step 1.2 (MQTT) → Part 2 Step 2.7 (Backend) → Part 3 Step 3.3 (Node-RED) → Cloudflare
 
 ---
 
-## Tổng kết Workshop
+## Workshop Summary
 
-Sau buổi học, bạn đã xây dựng:
+By the end of this workshop you have built:
 
 ```
-✅ MQTT Broker (Mosquitto)   ← nhận data từ sensor
-✅ Data Pipeline (Node-RED)  ← xử lý, tính toán, phát hiện anomaly
-✅ AI Backend (FastAPI)      ← kết nối AI, WebSocket
-✅ Dashboard (HTML/JS)       ← hiển thị real-time
-✅ AI Integration (Gemini)   ← phân tích, đề xuất bảo trì
-✅ Public URL (Cloudflare)   ← share cho bất kỳ ai
+✅ MQTT Broker (Mosquitto)    ← receives data from the simulator
+✅ Data Pipeline (Node-RED)   ← processes, computes trends, detects anomalies
+✅ AI Backend (FastAPI)       ← connects to AI, manages WebSocket clients
+✅ Dashboard (HTML/JS)        ← real-time browser interface
+✅ AI Integration (Gemini)    ← analysis and maintenance recommendations
+✅ Public URL (Cloudflare)    ← shareable link for anyone
 ```
 
-**Câu hỏi để ôn tập:**
-1. Tại sao IoT dùng MQTT thay vì REST API?
-2. Rolling buffer 60 readings có ý nghĩa gì?
-3. Tại sao cần throttle AI calls?
-4. WebSocket khác gì so với HTTP polling?
-5. Tại sao lưu API key trong `.env` thay vì hardcode trong code?
+**Review questions:**
+1. Why does IoT use MQTT instead of REST API?
+2. What is the purpose of a 60-reading rolling buffer?
+3. Why do we throttle AI calls?
+4. How does WebSocket differ from HTTP polling?
+5. Why store API keys in `.env` rather than hardcoding them in the source?
