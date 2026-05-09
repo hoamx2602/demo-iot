@@ -2,15 +2,14 @@
 PumpGuard AI — Backend Server
 - FastAPI + WebSocket
 - Subscribe MQTT → broadcast sensor data to dashboard via WebSocket
-- POST /analyze  → Claude API → returns business-friendly JSON
+- POST /analyze  → Gemini API → returns business-friendly JSON
 - POST /alert    → Resend email alert on anomaly detection
 
 Run:
     uvicorn backend.server:app --host 0.0.0.0 --port 8000 --reload
 
 Environment variables (set in .env):
-    AI_PROVIDER=claude|openai
-    ANTHROPIC_API_KEY=sk-ant-...
+    GEMINI_API_KEY=AIzaSy-...
     RESEND_API_KEY=re_...
     ALERT_FROM=PumpGuard AI <alerts@yourdomain.com>
     ALERT_TO=engineer@company.com
@@ -39,28 +38,19 @@ from pydantic import BaseModel
 load_dotenv()
 
 # ─── Config ─────────────────────────────────────────────────────────────────
-AI_PROVIDER       = os.getenv("AI_PROVIDER", "claude").lower()
-ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
-OPENAI_API_KEY    = os.getenv("OPENAI_API_KEY", "")
-GEMINI_API_KEY    = os.getenv("GEMINI_API_KEY", "")
-MQTT_HOST         = os.getenv("MQTT_HOST", "localhost")
-MQTT_PORT         = int(os.getenv("MQTT_PORT", "1883"))
-MQTT_USERNAME     = os.getenv("MQTT_USERNAME", "")
-MQTT_PASSWORD     = os.getenv("MQTT_PASSWORD", "")
-MQTT_TLS          = os.getenv("MQTT_TLS", "false").lower() in ("true", "1", "yes")
-TOPIC_SENSORS     = "pump/sensors"
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+AI_MODEL       = os.getenv("AI_MODEL", "gemini-2.0-flash")
 
-RESEND_API_KEY    = os.getenv("RESEND_API_KEY", "")
-ALERT_FROM        = os.getenv("ALERT_FROM", "PumpGuard AI <onboarding@resend.dev>")
-ALERT_TO          = [e.strip() for e in os.getenv("ALERT_TO", "").split(",") if e.strip()]
+MQTT_HOST     = os.getenv("MQTT_HOST", "localhost")
+MQTT_PORT     = int(os.getenv("MQTT_PORT", "1883"))
+MQTT_USERNAME = os.getenv("MQTT_USERNAME", "")
+MQTT_PASSWORD = os.getenv("MQTT_PASSWORD", "")
+MQTT_TLS      = os.getenv("MQTT_TLS", "false").lower() in ("true", "1", "yes")
+TOPIC_SENSORS = "pump/sensors"
 
-# AI Model defaults per provider
-_MODEL_DEFAULTS = {
-    "claude": "claude-sonnet-4-6",
-    "openai": "gpt-4o",
-    "gemini": "gemini-1.5-flash",   # free-tier friendly
-}
-AI_MODEL = os.getenv("AI_MODEL", _MODEL_DEFAULTS.get(AI_PROVIDER, "gemini-1.5-flash"))
+RESEND_API_KEY = os.getenv("RESEND_API_KEY", "")
+ALERT_FROM     = os.getenv("ALERT_FROM", "PumpGuard AI <onboarding@resend.dev>")
+ALERT_TO       = [e.strip() for e in os.getenv("ALERT_TO", "").split(",") if e.strip()]
 
 # ─── AI System Prompt ────────────────────────────────────────────────────────
 SYSTEM_PROMPT = """You are an AI-powered predictive maintenance analyst specializing in industrial pump systems for oil & gas operations.
@@ -349,7 +339,7 @@ if os.path.isdir(DASHBOARD_DIR):
 
 # ─── AI Integration ──────────────────────────────────────────────────────────
 async def call_ai(snapshot: SensorSnapshot) -> dict:
-    """Call Claude or OpenAI with sensor snapshot, return structured analysis."""
+    """Call Gemini with sensor snapshot, return structured analysis."""
 
     user_msg = f"""Current pump sensor snapshot:
 
@@ -363,63 +353,7 @@ Sensor Readings:
 
 Analyze this data and provide your predictive maintenance assessment."""
 
-    if AI_PROVIDER == "claude":
-        return await _call_claude(user_msg)
-    elif AI_PROVIDER == "openai":
-        return await _call_openai(user_msg)
-    elif AI_PROVIDER == "gemini":
-        return await _call_gemini(user_msg)
-    else:
-        return _mock_ai_response(snapshot)
-
-
-async def _call_claude(user_msg: str) -> dict:
-    if not ANTHROPIC_API_KEY:
-        print("[AI] No ANTHROPIC_API_KEY, using mock response")
-        return _mock_ai_response_generic()
-
-    try:
-        import anthropic
-        client = anthropic.AsyncAnthropic(api_key=ANTHROPIC_API_KEY)
-        response = await client.messages.create(
-            model=AI_MODEL,
-            max_tokens=1500,
-            system=SYSTEM_PROMPT,
-            messages=[{"role": "user", "content": user_msg}],
-        )
-        text = response.content[0].text.strip()
-        # Strip markdown if present
-        if text.startswith("```"):
-            text = text.split("```")[1]
-            if text.startswith("json"):
-                text = text[4:]
-        return json.loads(text)
-    except Exception as e:
-        print(f"[Claude API] Error: {e}")
-        return _mock_ai_response_generic(error=str(e))
-
-
-async def _call_openai(user_msg: str) -> dict:
-    if not OPENAI_API_KEY:
-        print("[AI] No OPENAI_API_KEY, using mock response")
-        return _mock_ai_response_generic()
-
-    try:
-        from openai import AsyncOpenAI
-        client = AsyncOpenAI(api_key=OPENAI_API_KEY)
-        response = await client.chat.completions.create(
-            model=AI_MODEL,
-            response_format={"type": "json_object"},
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": user_msg},
-            ],
-            max_tokens=1500,
-        )
-        return json.loads(response.choices[0].message.content)
-    except Exception as e:
-        print(f"[OpenAI API] Error: {e}")
-        return _mock_ai_response_generic(error=str(e))
+    return await _call_gemini(user_msg)
 
 
 async def _call_gemini(user_msg: str) -> dict:
@@ -527,7 +461,7 @@ async def root():
     return {
         "service": "Pump IoT Demo Backend",
         "status": "running",
-        "ai_provider": AI_PROVIDER,
+        "ai_provider": "gemini",
         "mqtt": f"{MQTT_HOST}:{MQTT_PORT}",
         "endpoints": {
             "analyze": "POST /analyze",
@@ -548,8 +482,8 @@ async def health():
     return {
         "status": "ok",
         "timestamp": datetime.now(timezone.utc).isoformat(),
-        "ai_provider": AI_PROVIDER,
-        "api_key_configured": bool(ANTHROPIC_API_KEY or OPENAI_API_KEY or GEMINI_API_KEY),
+        "ai_provider": "gemini",
+        "api_key_configured": bool(GEMINI_API_KEY),
         "ws_clients": len(manager.active),
         "mqtt_connected": mqtt_ok,
         "mqtt_broker": f"{MQTT_HOST}:{MQTT_PORT}",
