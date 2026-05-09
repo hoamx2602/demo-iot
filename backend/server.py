@@ -356,54 +356,47 @@ Analyze this data and provide your predictive maintenance assessment."""
     return await _call_gemini(user_msg)
 
 
+_GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent"
+
 async def _call_gemini(user_msg: str) -> dict:
     if not GEMINI_API_KEY:
         print("[AI] No GEMINI_API_KEY, using mock response")
         return _mock_ai_response_generic()
 
-    import google.generativeai as genai
-    genai.configure(api_key=GEMINI_API_KEY)
+    payload = {
+        "system_instruction": {
+            "parts": [{"text": SYSTEM_PROMPT}]
+        },
+        "contents": [
+            {"role": "user", "parts": [{"text": user_msg}]}
+        ],
+        "generationConfig": {
+            "responseMimeType": "application/json",
+            "maxOutputTokens": 1500,
+        },
+    }
 
-    # Fallback order: primary model → lite model khi quota hết
-    models_to_try = [AI_MODEL]
-    if AI_MODEL != "gemini-3.1-flash-lite":
-        models_to_try.append("gemini-3.1-flash-lite")
-
-    last_error = None
-    for model_name in models_to_try:
-        try:
-            print(f"[Gemini] Trying model: {model_name}")
-            model = genai.GenerativeModel(
-                model_name=model_name,
-                system_instruction=SYSTEM_PROMPT,
-                generation_config=genai.GenerationConfig(
-                    response_mime_type="application/json",
-                    max_output_tokens=1500,
-                ),
+    try:
+        import httpx
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.post(
+                _GEMINI_URL,
+                headers={"X-goog-api-key": GEMINI_API_KEY, "Content-Type": "application/json"},
+                json=payload,
             )
-            response = await asyncio.to_thread(model.generate_content, user_msg)
-            text = response.text.strip()
-            if text.startswith("```"):
-                text = text.split("```")[1]
-                if text.startswith("json"):
-                    text = text[4:]
-            result = json.loads(text)
-            if model_name != AI_MODEL:
-                print(f"[Gemini] Fell back to {model_name} (primary quota exceeded)")
-            return result
-        except Exception as e:
-            last_error = e
-            err_str = str(e)
-            if "429" in err_str or "quota" in err_str.lower():
-                print(f"[Gemini] Quota exceeded for {model_name}, trying next...")
-                await asyncio.sleep(2)
-                continue
-            # Non-quota error — don't retry
-            print(f"[Gemini API] Error: {e}")
-            return _mock_ai_response_generic(error=err_str)
 
-    print(f"[Gemini] All models quota exceeded: {last_error}")
-    return _mock_ai_response_generic(error=str(last_error))
+        if resp.status_code == 429:
+            print(f"[Gemini] Quota exceeded: {resp.text[:200]}")
+            return _mock_ai_response_generic(error=f"429 quota exceeded — try again later")
+
+        resp.raise_for_status()
+        text = resp.json()["candidates"][0]["content"]["parts"][0]["text"]
+        print(f"[Gemini] OK — model: {resp.json().get('modelVersion', 'unknown')}")
+        return json.loads(text)
+
+    except Exception as e:
+        print(f"[Gemini API] Error: {e}")
+        return _mock_ai_response_generic(error=str(e))
 
 
 def _mock_ai_response_generic(error: str = None) -> dict:
