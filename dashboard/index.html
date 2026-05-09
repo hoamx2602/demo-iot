@@ -440,6 +440,14 @@
     </div>
   </div>
 
+  <!-- ── Alert Panel: hiện khi có sensor bất ổn ── -->
+  <div id="alert-panel" style="display:none;margin-bottom:16px;padding:14px 18px;border-radius:10px;border:1px solid #ef4444;background:rgba(239,68,68,.07)">
+    <div style="font-size:.72rem;font-weight:700;color:#ef4444;text-transform:uppercase;letter-spacing:.09em;margin-bottom:10px">
+      🚨 Sensors Requiring Attention
+    </div>
+    <div id="alert-sensors-list" style="display:flex;flex-direction:column;gap:8px"></div>
+  </div>
+
   <!-- 4 Sensor Cards -->
   <div class="sensor-grid" id="sensor-grid">
     <div class="card sensor-card" id="card-vibration"   style="--sensor-color:var(--cyan)">
@@ -855,6 +863,9 @@ function getSensorStatus(name, val) {
   return 'NORMAL';
 }
 
+// Lưu trạng thái từng sensor để vẽ alert panel
+const _sensorAlertState = {};
+
 function updateSensorCard(name, val, statusOverride) {
   const status = statusOverride || getSensorStatus(name, val);
   const cfg = SENSOR_CONFIG[name];
@@ -877,6 +888,61 @@ function updateSensorCard(name, val, statusOverride) {
   spark.data.labels = h.map((_, i) => i);
   spark.data.datasets[0].data = [...h];
   spark.update('none');
+
+  // Lưu lại để refresh alert panel
+  _sensorAlertState[name] = { val, fmt, status, cfg };
+}
+
+// Các label/unit hiển thị cho từng sensor
+const _SENSOR_DISPLAY = {
+  vibration:   { label: '⚡ Vibration',   unit: 'mm/s', warnTxt: '> 4.5', critTxt: '> 6.5' },
+  temperature: { label: '🌡 Temperature', unit: '°C',   warnTxt: '> 85',  critTxt: '> 95'  },
+  pressure:    { label: '📊 Pressure',    unit: 'bar',  warnTxt: '> 8.0', critTxt: '> 10.0'},
+  flow_rate:   { label: '💧 Flow Rate',   unit: 'm³/h', warnTxt: '< 120', critTxt: '< 100' },
+};
+
+function refreshAlertPanel() {
+  const panel = document.getElementById('alert-panel');
+  const list  = document.getElementById('alert-sensors-list');
+  const bad   = Object.entries(_sensorAlertState)
+    .filter(([, s]) => s.status !== 'NORMAL')
+    .sort(([,a],[,b]) => (b.status==='CRITICAL'?1:0)-(a.status==='CRITICAL'?1:0));
+
+  if (bad.length === 0) { panel.style.display = 'none'; return; }
+
+  panel.style.display = 'block';
+  panel.style.borderColor = bad.some(([,s])=>s.status==='CRITICAL') ? '#ef4444' : '#f59e0b';
+  panel.style.background  = bad.some(([,s])=>s.status==='CRITICAL')
+    ? 'rgba(239,68,68,.07)' : 'rgba(245,158,11,.07)';
+  panel.querySelector('div').style.color =
+    bad.some(([,s])=>s.status==='CRITICAL') ? '#ef4444' : '#f59e0b';
+
+  list.innerHTML = bad.map(([name, s]) => {
+    const d = _SENSOR_DISPLAY[name] || { label: name, unit: '', warnTxt:'', critTxt:'' };
+    const isCrit = s.status === 'CRITICAL';
+    const color  = isCrit ? '#ef4444' : '#f59e0b';
+    const thresh = isCrit ? d.critTxt : d.warnTxt;
+    return `
+      <div style="display:flex;align-items:center;gap:12px;padding:8px 10px;
+                  border-radius:7px;background:rgba(0,0,0,.25);border-left:3px solid ${color}">
+        <div style="font-size:.9rem;font-weight:700;color:${color};min-width:20px">
+          ${isCrit ? '🔴' : '⚠️'}
+        </div>
+        <div style="flex:1">
+          <div style="font-size:.82rem;font-weight:700;color:var(--text)">${d.label}</div>
+          <div style="font-size:.75rem;color:var(--text-muted);margin-top:2px">
+            Threshold: ${thresh} ${d.unit}
+          </div>
+        </div>
+        <div style="text-align:right">
+          <div style="font-size:1.1rem;font-weight:800;color:${color}">
+            ${s.fmt} <span style="font-size:.7rem;font-weight:400">${d.unit}</span>
+          </div>
+          <span style="font-size:.65rem;font-weight:700;padding:2px 6px;border-radius:3px;
+                       background:${color};color:#fff">${s.status}</span>
+        </div>
+      </div>`;
+  }).join('');
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -911,6 +977,7 @@ function processSensorUpdate(data) {
       updateSensorCard(name, val, statusOverride);
     }
   }
+  refreshAlertPanel(); // Cập nhật panel hiện sensor đang lỗi
 
   // Health + overall
   updateHealthRing(data.health_score ?? 80);
