@@ -632,6 +632,44 @@ async def control_state(state: str):
         "sent_at": datetime.now(timezone.utc).isoformat(),
     })
     print(f"[Control] → {state.upper()} broadcast to {len(manager.active)} client(s)")
+
+    # Fire email alert when presenter manually triggers warning or critical
+    if state in ("warning", "critical"):
+        level = "CRITICAL" if state == "critical" else "WARNING"
+        # Synthetic sensor readings that match the simulated state
+        if state == "critical":
+            sensor_vals = {"vibration": 7.8, "temperature": 96.5, "pressure": 10.2, "flow_rate": 88.0}
+            health_score = 18.0
+            hours = 6
+            savings = 513500
+        else:
+            sensor_vals = {"vibration": 5.2, "temperature": 87.0, "pressure": 8.6, "flow_rate": 112.0}
+            health_score = 48.0
+            hours = 18
+            savings = 513500
+
+        sensor_summary, sensor_statuses = _build_sensor_summary(sensor_vals)
+        alert_req = AlertRequest(
+            level=level,
+            sensor_summary=sensor_summary,
+            sensor_statuses=sensor_statuses,
+            health_score=health_score,
+            message=f"Operator manually triggered {level} state via Control Panel. Immediate inspection recommended.",
+            ai_risk_level=level,
+            estimated_hours_to_failure=hours,
+            estimated_savings=savings,
+        )
+        print(f"[Control] Firing email alert for {level} state...")
+
+        async def _fire_control_alert(req: AlertRequest, lvl: str):
+            try:
+                result = await _do_send_alert(req)
+                print(f"[Control] Email result for {lvl}: {result}")
+            except Exception as exc:
+                print(f"[Control] Email error for {lvl}: {exc}")
+
+        asyncio.create_task(_fire_control_alert(alert_req, level))
+
     return {"status": "ok", "state": state, "clients": len(manager.active)}
 
 
@@ -644,6 +682,38 @@ async def control_trigger_ai():
         "sent_at": datetime.now(timezone.utc).isoformat(),
     })
     return {"status": "ok", "action": "trigger_ai", "clients": len(manager.active)}
+
+
+@app.get("/alert/test")
+async def test_alert():
+    """
+    Quick diagnostic — check email config and send a test alert.
+    Open: http://localhost:8000/alert/test
+    """
+    diag = {
+        "RESEND_API_KEY": "✅ set" if RESEND_API_KEY else "❌ NOT SET",
+        "ALERT_TO":       ALERT_TO if ALERT_TO else "❌ NOT SET",
+        "ALERT_FROM":     ALERT_FROM,
+        "cooldown_remaining": max(0, int(_ALERT_COOLDOWN_SEC - (time.time() - _last_alert_time))),
+    }
+
+    if not RESEND_API_KEY or not ALERT_TO:
+        return {"status": "cannot_send", "config": diag}
+
+    sensor_vals = {"vibration": 7.8, "temperature": 96.5, "pressure": 10.2, "flow_rate": 88.0}
+    sensor_summary, sensor_statuses = _build_sensor_summary(sensor_vals)
+    req = AlertRequest(
+        level="CRITICAL",
+        sensor_summary=sensor_summary,
+        sensor_statuses=sensor_statuses,
+        health_score=18.0,
+        message="Test alert from /alert/test endpoint.",
+        ai_risk_level="CRITICAL",
+        estimated_hours_to_failure=6,
+        estimated_savings=513500,
+    )
+    result = await _do_send_alert(req)
+    return {"config": diag, "send_result": result}
 
 
 # ─── Email Alert ─────────────────────────────────────────────────────────────
@@ -796,8 +866,8 @@ _last_alert_time: float = 0.0
 _ALERT_COOLDOWN_SEC = 60.0
 
 
-@app.post("/alert")
-async def send_alert(req: AlertRequest):
+async def _do_send_alert(req: AlertRequest) -> dict:
+    """Core email-sending logic — callable from both the HTTP route and internal code."""
     global _last_alert_time
 
     if not RESEND_API_KEY:
@@ -815,9 +885,9 @@ async def send_alert(req: AlertRequest):
         resend.api_key = RESEND_API_KEY
 
         subject = (
-            f"🔴 CRITICAL — Pump Failure Risk Detected"
+            "🔴 CRITICAL — Pump Failure Risk Detected"
             if req.level == "CRITICAL"
-            else f"⚠️ WARNING — Pump Anomaly Detected"
+            else "⚠️ WARNING — Pump Anomaly Detected"
         )
 
         resend.Emails.send({
@@ -834,3 +904,8 @@ async def send_alert(req: AlertRequest):
     except Exception as e:
         print(f"[Alert] Email error: {e}")
         return {"status": "error", "reason": str(e)}
+
+
+@app.post("/alert")
+async def send_alert(req: AlertRequest):
+    return await _do_send_alert(req)
