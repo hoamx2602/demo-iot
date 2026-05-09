@@ -39,7 +39,7 @@ load_dotenv()
 
 # ─── Config ─────────────────────────────────────────────────────────────────
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-AI_MODEL       = os.getenv("AI_MODEL", "gemini-2.0-flash")
+AI_MODEL       = os.getenv("AI_MODEL", "gemini-3-flash-preview")  # latest, free tier 1000 req/day
 
 MQTT_HOST     = os.getenv("MQTT_HOST", "localhost")
 MQTT_PORT     = int(os.getenv("MQTT_PORT", "1883"))
@@ -361,30 +361,49 @@ async def _call_gemini(user_msg: str) -> dict:
         print("[AI] No GEMINI_API_KEY, using mock response")
         return _mock_ai_response_generic()
 
-    try:
-        import google.generativeai as genai
-        genai.configure(api_key=GEMINI_API_KEY)
-        model = genai.GenerativeModel(
-            model_name=AI_MODEL,
-            system_instruction=SYSTEM_PROMPT,
-            generation_config=genai.GenerationConfig(
-                response_mime_type="application/json",
-                max_output_tokens=1500,
-            ),
-        )
-        response = await asyncio.to_thread(
-            model.generate_content, user_msg
-        )
-        text = response.text.strip()
-        # Strip markdown fences if present
-        if text.startswith("```"):
-            text = text.split("```")[1]
-            if text.startswith("json"):
-                text = text[4:]
-        return json.loads(text)
-    except Exception as e:
-        print(f"[Gemini API] Error: {e}")
-        return _mock_ai_response_generic(error=str(e))
+    import google.generativeai as genai
+    genai.configure(api_key=GEMINI_API_KEY)
+
+    # Fallback order: primary model → lite model khi quota hết
+    models_to_try = [AI_MODEL]
+    if AI_MODEL != "gemini-3.1-flash-lite":
+        models_to_try.append("gemini-3.1-flash-lite")
+
+    last_error = None
+    for model_name in models_to_try:
+        try:
+            print(f"[Gemini] Trying model: {model_name}")
+            model = genai.GenerativeModel(
+                model_name=model_name,
+                system_instruction=SYSTEM_PROMPT,
+                generation_config=genai.GenerationConfig(
+                    response_mime_type="application/json",
+                    max_output_tokens=1500,
+                ),
+            )
+            response = await asyncio.to_thread(model.generate_content, user_msg)
+            text = response.text.strip()
+            if text.startswith("```"):
+                text = text.split("```")[1]
+                if text.startswith("json"):
+                    text = text[4:]
+            result = json.loads(text)
+            if model_name != AI_MODEL:
+                print(f"[Gemini] Fell back to {model_name} (primary quota exceeded)")
+            return result
+        except Exception as e:
+            last_error = e
+            err_str = str(e)
+            if "429" in err_str or "quota" in err_str.lower():
+                print(f"[Gemini] Quota exceeded for {model_name}, trying next...")
+                await asyncio.sleep(2)
+                continue
+            # Non-quota error — don't retry
+            print(f"[Gemini API] Error: {e}")
+            return _mock_ai_response_generic(error=err_str)
+
+    print(f"[Gemini] All models quota exceeded: {last_error}")
+    return _mock_ai_response_generic(error=str(last_error))
 
 
 def _mock_ai_response_generic(error: str = None) -> dict:
