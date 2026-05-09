@@ -38,8 +38,8 @@ from pydantic import BaseModel
 load_dotenv()
 
 # ─── Config ─────────────────────────────────────────────────────────────────
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-AI_MODEL       = os.getenv("AI_MODEL", "gemini-3-flash-preview")  # latest, free tier 1000 req/day
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
+AI_MODEL     = os.getenv("AI_MODEL", "llama-3.3-70b-versatile")  # Groq free: 14,400 req/day, 30 RPM
 
 MQTT_HOST     = os.getenv("MQTT_HOST", "localhost")
 MQTT_PORT     = int(os.getenv("MQTT_PORT", "1883"))
@@ -353,33 +353,34 @@ Sensor Readings:
 
 Analyze this data and provide your predictive maintenance assessment."""
 
-    return await _call_gemini(user_msg)
+    return await _call_groq(user_msg)
 
 
-async def _call_gemini(user_msg: str) -> dict:
-    if not GEMINI_API_KEY:
-        print("[AI] No GEMINI_API_KEY, using mock response")
+async def _call_groq(user_msg: str) -> dict:
+    if not GROQ_API_KEY:
+        print("[AI] No GROQ_API_KEY, using mock response")
         return _mock_ai_response_generic()
 
     try:
-        from google import genai
-        from google.genai import types
+        from groq import AsyncGroq
 
-        client = genai.Client(api_key=GEMINI_API_KEY)
-        response = await client.aio.models.generate_content(
+        client = AsyncGroq(api_key=GROQ_API_KEY)
+        response = await client.chat.completions.create(
             model=AI_MODEL,
-            contents=user_msg,
-            config=types.GenerateContentConfig(
-                system_instruction=SYSTEM_PROMPT,
-                response_mime_type="application/json",
-                max_output_tokens=1500,
-            ),
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user",   "content": user_msg},
+            ],
+            response_format={"type": "json_object"},
+            max_tokens=2048,
+            temperature=0.3,
         )
-        print(f"[Gemini] OK — model: {AI_MODEL}")
-        return json.loads(response.text)
+        text = response.choices[0].message.content
+        print(f"[Groq] OK — model: {AI_MODEL}  tokens: {response.usage.total_tokens}")
+        return json.loads(text)
 
     except Exception as e:
-        print(f"[Gemini API] Error: {e}")
+        print(f"[Groq API] Error: {e}")
         return _mock_ai_response_generic(error=str(e))
 
 
@@ -457,7 +458,7 @@ async def root():
     return {
         "service": "Pump IoT Demo Backend",
         "status": "running",
-        "ai_provider": "gemini",
+        "ai_provider": "groq",
         "mqtt": f"{MQTT_HOST}:{MQTT_PORT}",
         "endpoints": {
             "analyze": "POST /analyze",
@@ -478,8 +479,8 @@ async def health():
     return {
         "status": "ok",
         "timestamp": datetime.now(timezone.utc).isoformat(),
-        "ai_provider": "gemini",
-        "api_key_configured": bool(GEMINI_API_KEY),
+        "ai_provider": "groq",
+        "api_key_configured": bool(GROQ_API_KEY),
         "ws_clients": len(manager.active),
         "mqtt_connected": mqtt_ok,
         "mqtt_broker": f"{MQTT_HOST}:{MQTT_PORT}",
