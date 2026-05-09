@@ -487,13 +487,21 @@ async def root():
 
 @app.get("/health")
 async def health():
+    mqtt_ok = (
+        mqtt_bridge.client is not None
+        and mqtt_bridge.client.is_connected()
+    )
+    last_status = _last_sensor_payload.get("machine_status") if _last_sensor_payload else None
     return {
         "status": "ok",
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "ai_provider": AI_PROVIDER,
         "api_key_configured": bool(ANTHROPIC_API_KEY or OPENAI_API_KEY or GEMINI_API_KEY),
         "ws_clients": len(manager.active),
+        "mqtt_connected": mqtt_ok,
+        "mqtt_broker": f"{MQTT_HOST}:{MQTT_PORT}",
         "has_data": bool(_last_sensor_payload),
+        "last_status": last_status,
     }
 
 

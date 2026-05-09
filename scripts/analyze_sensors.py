@@ -113,14 +113,15 @@ def analyze_group_divergence(df: pd.DataFrame) -> dict:
 
 
 def find_first_anomaly_index(df: pd.DataFrame) -> int:
-    """Tìm row đầu tiên trước khi status BROKEN xuất hiện."""
+    """Trả về index của row BROKEN đầu tiên trong dataset.
+
+    mqtt_replay.py --start-at-anomaly sẽ lùi 200 rows từ đây,
+    cho ~33s NORMAL context trước khi BROKEN xuất hiện (360x compression).
+    """
     broken_rows = df[df["machine_status"] == "BROKEN"].index.tolist()
     if not broken_rows:
         return len(df) // 2
-    first_broken = broken_rows[0]
-    # Lùi 5% để bắt đầu từ điểm "bắt đầu degrading"
-    offset = max(0, first_broken - int(len(df) * 0.05))
-    return offset
+    return broken_rows[0]  # Row BROKEN thực sự — không lùi offset
 
 
 def build_sensor_groups_config(df: pd.DataFrame, divergence: dict) -> dict:
