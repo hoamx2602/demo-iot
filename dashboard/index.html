@@ -795,6 +795,8 @@ const state = {
   startRow: null,
   latestPayload: null,
   aiDetectedAt: null,
+  _lastEmailTime: 0,       // cooldown: không spam email
+  _lastEmailLevel: null,   // tránh gửi lại cùng level liên tiếp
 };
 
 // ═══════════════════════════════════════════════════════════════
@@ -947,7 +949,7 @@ function processSensorUpdate(data) {
   updateSensorPage(data);
 
   // First anomaly detection
-  if (!state.firstAnomalyDetected && (os === 'WARNING' || os === 'CRITICAL')) {
+  if (!state.firstAnomalyDetected && (os === 'WARNING' || os === 'CRITICAL' || os === 'BROKEN')) {
     state.firstAnomalyDetected = true;
     state.firstAnomalyRow = data.row;
     state.aiDetectedAt = new Date();
@@ -955,6 +957,19 @@ function processSensorUpdate(data) {
     addEvent('warning', `Anomaly detected — sensors outside normal bounds`);
     document.getElementById('tl-pin-ai').style.display = 'flex';
     document.getElementById('tl-phase-mid-label').style.visibility = 'visible';
+  }
+
+  // Auto email khi nhận real MQTT data có trạng thái bất ổn
+  // (chỉ khi WebSocket đang live, không phải JS simulator)
+  if (wsConnected && (os === 'CRITICAL' || os === 'BROKEN' || os === 'WARNING')) {
+    const emailLevel = (os === 'CRITICAL' || os === 'BROKEN') ? 'CRITICAL' : 'WARNING';
+    const now = Date.now();
+    const cooldown = emailLevel === 'CRITICAL' ? 120_000 : 300_000; // 2 min / 5 min
+    if (now - state._lastEmailTime > cooldown || state._lastEmailLevel !== emailLevel) {
+      state._lastEmailTime  = now;
+      state._lastEmailLevel = emailLevel;
+      sendEmailAlert(emailLevel);
+    }
   }
 }
 
@@ -1312,18 +1327,39 @@ async function sendEmailAlert(level) {
   const sensors = p?.sensors || { vibration: 5.8, temperature: 88, pressure: 9.1, flow_rate: 108 };
   const health  = p?.health_score ?? (level === 'CRITICAL' ? 18 : 52);
 
+  // Tính per-sensor status để highlight trong email
+  const sensorSummary   = {};
+  const sensorStatuses  = {};
+  const defs = [
+    { key: 'vibration',   label: 'Vibration',   unit: 'mm/s', dec: 2, warn: 4.5,  crit: 6.5,  inv: false },
+    { key: 'temperature', label: 'Temperature', unit: '°C',   dec: 1, warn: 85,   crit: 95,   inv: false },
+    { key: 'pressure',    label: 'Pressure',    unit: 'bar',  dec: 2, warn: 8.0,  crit: 10.0, inv: false },
+    { key: 'flow_rate',   label: 'Flow Rate',   unit: 'm³/h', dec: 1, warn: 120,  crit: 100,  inv: true  },
+  ];
+  for (const d of defs) {
+    const val = sensors[d.key] ?? 0;
+    sensorSummary[d.label]  = val.toFixed(d.dec) + ' ' + d.unit;
+    sensorStatuses[d.label] = d.inv
+      ? (val <= d.crit ? 'CRITICAL' : val <= d.warn ? 'WARNING' : 'NORMAL')
+      : (val >= d.crit ? 'CRITICAL' : val >= d.warn ? 'WARNING' : 'NORMAL');
+  }
+
+  // Tạo message liệt kê sensor nào đang bất ổn
+  const badSensors = defs
+    .filter(d => sensorStatuses[d.label] !== 'NORMAL')
+    .map(d => `${d.label} (${sensorStatuses[d.label]})`);
+  const message = badSensors.length
+    ? `Problematic sensors: ${badSensors.join(', ')}. ${level === 'CRITICAL' ? 'Immediate action required.' : 'Monitor closely.'}`
+    : (level === 'CRITICAL'
+        ? 'Multiple sensors in critical state — unplanned shutdown risk imminent.'
+        : 'Sensor readings outside normal bounds — monitoring closely.');
+
   const body = {
     level,
     health_score: Math.round(health),
-    sensor_summary: {
-      'Vibration':   (sensors.vibration   ?? 0).toFixed(2) + ' mm/s',
-      'Temperature': (sensors.temperature ?? 0).toFixed(1) + ' °C',
-      'Pressure':    (sensors.pressure    ?? 0).toFixed(2) + ' bar',
-      'Flow Rate':   (sensors.flow_rate   ?? 0).toFixed(1) + ' m³/h',
-    },
-    message: level === 'CRITICAL'
-      ? 'Multiple sensors in critical state — unplanned shutdown risk imminent.'
-      : 'Sensor readings outside normal bounds — monitoring closely.',
+    sensor_summary:  sensorSummary,
+    sensor_statuses: sensorStatuses,
+    message,
     ai_risk_level: state._lastAIRisk ?? null,
     estimated_hours_to_failure: state._predHours ?? null,
     estimated_savings: state._lastSavings ?? null,

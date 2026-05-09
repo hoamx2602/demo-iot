@@ -105,6 +105,9 @@ class PumpReplay:
             val = self.compute_group_value(row, group_name)
             sensor_values[group_name] = val
 
+        # Đảm bảo sensor values phản ánh đúng mức độ nghiêm trọng
+        sensor_values = self._apply_status_override(sensor_values, status)
+
         # Tính health score dựa trên khoảng cách đến threshold
         health = self._compute_health_score(sensor_values, status)
 
@@ -117,6 +120,51 @@ class PumpReplay:
             "sensors": sensor_values,
             "progress_pct": round(row_idx / self.total_rows * 100, 1),
         }
+
+    def _apply_status_override(self, values: dict, status: str) -> dict:
+        """Điều chỉnh sensor values để khớp với machine status.
+
+        CSV gốc có thể không có giá trị đủ lớn để vượt threshold khi BROKEN.
+        Hàm này đảm bảo dashboard luôn thấy đúng màu CRITICAL/WARNING.
+        """
+        if status not in ("BROKEN", "RECOVERING"):
+            return values
+
+        out = dict(values)
+        g = self.groups
+
+        if status == "BROKEN":
+            # Vibration: đẩy lên trên critical threshold
+            if "vibration" in g:
+                crit = g["vibration"]["thresholds"]["critical"]
+                out["vibration"] = round(crit * np.random.uniform(1.10, 1.35), 2)
+            # Temperature: trên critical
+            if "temperature" in g:
+                crit = g["temperature"]["thresholds"]["critical"]
+                out["temperature"] = round(crit * np.random.uniform(1.02, 1.10), 1)
+            # Pressure: trên warning (hoặc critical nếu may mắn)
+            if "pressure" in g:
+                warn = g["pressure"]["thresholds"]["warning"]
+                crit = g["pressure"]["thresholds"]["critical"]
+                out["pressure"] = round(np.random.uniform(warn, crit * 1.05), 2)
+            # Flow rate: xuống dưới critical (inverted)
+            if "flow_rate" in g:
+                crit = g["flow_rate"]["thresholds"]["critical"]
+                out["flow_rate"] = round(crit * np.random.uniform(0.70, 0.88), 1)
+
+        elif status == "RECOVERING":
+            # Values giữa normal_max và warning
+            if "vibration" in g:
+                t = g["vibration"]["thresholds"]
+                out["vibration"] = round(np.random.uniform(t["normal_max"], t["warning"]), 2)
+            if "temperature" in g:
+                t = g["temperature"]["thresholds"]
+                out["temperature"] = round(np.random.uniform(t["normal_max"], t["warning"]), 1)
+            if "flow_rate" in g:
+                t = g["flow_rate"]["thresholds"]
+                out["flow_rate"] = round(np.random.uniform(t["critical"], t["warning"]), 1)
+
+        return out
 
     def _compute_health_score(self, values: dict, status: str) -> float:
         """Health score 0-100, dựa trên threshold của mỗi nhóm."""

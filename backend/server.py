@@ -223,17 +223,41 @@ class MQTTBridge:
 
     async def _auto_analyze(self, payload: dict):
         try:
+            machine_status = payload.get("machine_status", "NORMAL")
+            health_score   = payload.get("health_score", 50.0)
+            sensors        = payload.get("trends", payload.get("sensors", {}))
+
             snapshot = SensorSnapshot(
                 timestamp=payload.get("ts", datetime.now(timezone.utc).isoformat()),
-                machine_status=payload.get("machine_status", "UNKNOWN"),
-                health_score=payload.get("health_score", 50.0),
-                overall_status=payload.get("overall_status", "NORMAL"),
-                sensors=payload.get("trends", payload.get("sensors", {})),
+                machine_status=machine_status,
+                health_score=health_score,
+                overall_status=payload.get("overall_status", machine_status),
+                sensors=sensors,
             )
             result = await call_ai(snapshot)
             result["type"] = "ai_recommendation"
             result["triggered_by"] = "auto"
             await manager.broadcast(result)
+
+            # Auto-send email alert (server-side, không cần dashboard mở)
+            alert_level = "CRITICAL" if machine_status in ("BROKEN", "CRITICAL") else "WARNING"
+            sensor_summary, sensor_statuses = _build_sensor_summary(sensors)
+            alert_req = AlertRequest(
+                level=alert_level,
+                sensor_summary=sensor_summary,
+                sensor_statuses=sensor_statuses,
+                health_score=health_score,
+                message=(
+                    "Pump failure detected — emergency maintenance required."
+                    if machine_status == "BROKEN"
+                    else "Sensor readings outside normal bounds."
+                ),
+                ai_risk_level=result.get("risk_level"),
+                estimated_hours_to_failure=result.get("estimated_hours_to_failure"),
+                estimated_savings=result.get("estimated_savings"),
+            )
+            await send_alert(alert_req)
+            print(f"[Auto-Analysis] Alert dispatched: {alert_level}")
         except Exception as e:
             print(f"[Auto-Analysis] Error: {e}")
 
@@ -594,9 +618,44 @@ async def control_trigger_ai():
 
 
 # ─── Email Alert ─────────────────────────────────────────────────────────────
+
+# Sensor thresholds (khớp với SENSOR_GAUGE_CFG trong dashboard)
+_SENSOR_THRESHOLDS = {
+    "vibration":   {"warn": 4.5,  "crit": 6.5,  "unit": "mm/s", "invert": False},
+    "temperature": {"warn": 85.0, "crit": 95.0,  "unit": "°C",   "invert": False},
+    "pressure":    {"warn": 8.0,  "crit": 10.0,  "unit": "bar",  "invert": False},
+    "flow_rate":   {"warn": 120.0,"crit": 100.0, "unit": "m³/h", "invert": True},
+}
+
+def _sensor_status(name: str, val: float) -> str:
+    t = _SENSOR_THRESHOLDS.get(name)
+    if not t:
+        return "NORMAL"
+    if t["invert"]:
+        if val <= t["crit"]: return "CRITICAL"
+        if val <= t["warn"]: return "WARNING"
+    else:
+        if val >= t["crit"]: return "CRITICAL"
+        if val >= t["warn"]: return "WARNING"
+    return "NORMAL"
+
+def _build_sensor_summary(sensors: dict):
+    """Trả về (sensor_summary, sensor_statuses) từ raw sensor values."""
+    summary  = {}
+    statuses = {}
+    for name, val in sensors.items():
+        t = _SENSOR_THRESHOLDS.get(name, {})
+        unit = t.get("unit", "")
+        decimals = 1 if name == "temperature" else 2 if name in ("vibration", "pressure") else 1
+        summary[name.replace("_", " ").title()] = f"{val:.{decimals}f} {unit}".strip()
+        statuses[name.replace("_", " ").title()] = _sensor_status(name, val)
+    return summary, statuses
+
+
 class AlertRequest(BaseModel):
-    level: str                  # "WARNING" | "CRITICAL"
-    sensor_summary: dict        # {vibration: 5.8, temperature: 88, ...}
+    level: str                          # "WARNING" | "CRITICAL"
+    sensor_summary: dict                # {"Vibration": "7.2 mm/s", ...}
+    sensor_statuses: Optional[dict] = None  # {"Vibration": "CRITICAL", ...}
     health_score: float
     message: str
     ai_risk_level: Optional[str] = None
@@ -613,9 +672,21 @@ def _build_email_html(req: AlertRequest) -> str:
     level_bg    = "#1a0a0a" if req.level == "CRITICAL" else "#1a1400"
     icon        = "🔴" if req.level == "CRITICAL" else "⚠️"
 
+    _status_badge = {
+        "CRITICAL": '<span style="background:#ef4444;color:#fff;font-size:10px;font-weight:700;padding:2px 7px;border-radius:4px;margin-left:8px">CRITICAL</span>',
+        "WARNING":  '<span style="background:#f59e0b;color:#000;font-size:10px;font-weight:700;padding:2px 7px;border-radius:4px;margin-left:8px">WARNING</span>',
+        "NORMAL":   '<span style="background:#10b981;color:#fff;font-size:10px;font-weight:700;padding:2px 7px;border-radius:4px;margin-left:8px">NORMAL</span>',
+    }
+
+    def _row_color(k):
+        st = (req.sensor_statuses or {}).get(k, "NORMAL")
+        return "#1a0a0a" if st == "CRITICAL" else "#1a1000" if st == "WARNING" else "transparent"
+
     sensor_rows = "".join(
-        f'<tr><td style="padding:6px 12px;color:#9ca3af;font-size:13px">{k.replace("_"," ").title()}</td>'
-        f'<td style="padding:6px 12px;color:#f9fafb;font-size:13px;font-weight:600">{v}</td></tr>'
+        f'<tr style="background:{_row_color(k)}">'
+        f'<td style="padding:8px 12px;color:#9ca3af;font-size:13px">{k}</td>'
+        f'<td style="padding:8px 12px;color:#f9fafb;font-size:13px;font-weight:600">{v}'
+        f'{_status_badge.get((req.sensor_statuses or {}).get(k,"NORMAL"),"")}</td></tr>'
         for k, v in req.sensor_summary.items()
     )
 
