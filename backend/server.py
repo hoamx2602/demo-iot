@@ -2,14 +2,14 @@
 PumpGuard AI — Backend Server
 - FastAPI + WebSocket
 - Subscribe MQTT → broadcast sensor data to dashboard via WebSocket
-- POST /analyze  → Gemini API → returns business-friendly JSON
+- POST /analyze  → Groq API (llama-3.3-70b) → returns business-friendly JSON
 - POST /alert    → Resend email alert on anomaly detection
 
 Run:
     uvicorn backend.server:app --host 0.0.0.0 --port 8000 --reload
 
 Environment variables (set in .env):
-    GEMINI_API_KEY=AIzaSy-...
+    GROQ_API_KEY=gsk_...
     RESEND_API_KEY=re_...
     ALERT_FROM=PumpGuard AI <alerts@yourdomain.com>
     ALERT_TO=engineer@company.com

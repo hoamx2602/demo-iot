@@ -68,21 +68,21 @@ subprocess.run(["apt-get", "install", "-y", "-q", "mosquitto"], check=True, capt
 print("✅ All dependencies installed!")
 """))
 
-cells.append(md("""## Step 4 — Configure Gemini API Key
+cells.append(md("""## Step 4 — Configure Groq API Key
 
-Get a free key at: https://aistudio.google.com/apikey
-Fill in `GEMINI_API_KEY` below and run the cell.
+Get a **free** key at: https://console.groq.com → API Keys
+Fill in `GROQ_API_KEY` below and run the cell.
 """))
 cells.append(code("""\
-GEMINI_API_KEY = "AIzaSy-xxxx"   # ← REPLACE WITH YOUR REAL KEY
+GROQ_API_KEY = "gsk_xxxx"   # ← REPLACE WITH YOUR REAL KEY
 
 with open("/content/pumpguard/backend/.env", "w") as f:
-    f.write(f"AI_PROVIDER=gemini\\nGEMINI_API_KEY={GEMINI_API_KEY}\\nMQTT_HOST=localhost\\nMQTT_PORT=1883\\n")
+    f.write(f"GROQ_API_KEY={GROQ_API_KEY}\\nMQTT_HOST=localhost\\nMQTT_PORT=1883\\n")
 
-if GEMINI_API_KEY.startswith("AIzaSy") and len(GEMINI_API_KEY) > 20:
-    print(f"✅ API key set: {GEMINI_API_KEY[:14]}...")
+if GROQ_API_KEY.startswith("gsk_") and len(GROQ_API_KEY) > 10:
+    print(f"✅ API key set: {GROQ_API_KEY[:12]}...")
 else:
-    print("⚠️  Enter your real API key above!")
+    print("⚠️  Enter your real Groq API key above!")
 """))
 
 cells.append(md("## Step 5 — Start MQTT Broker"))
