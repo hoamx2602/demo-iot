@@ -762,103 +762,74 @@ class AlertRequest(BaseModel):
     estimated_savings: Optional[int] = None
 
 
+_EMAIL_TEMPLATE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "email_alert.html")
+
 def _build_email_html(req: AlertRequest) -> str:
-    # Read PUBLIC_URL on every call (may be set after server has already started)
-    _public_url = os.getenv("PUBLIC_URL", "http://localhost:8000").rstrip("/")
-    _dashboard_url = _public_url + "/dashboard/"
+    # Re-read .env so PUBLIC_URL is always fresh (no restart needed after tunnel is set)
+    try:
+        from dotenv import dotenv_values
+        _env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+        _pub = dotenv_values(_env_path).get("PUBLIC_URL", "")
+    except Exception:
+        _pub = ""
+    dashboard_url = (_pub or os.getenv("PUBLIC_URL", "http://localhost:8000")).rstrip("/") + "/dashboard/"
 
-    level_color = "#ef4444" if req.level == "CRITICAL" else "#f59e0b"
-    level_bg    = "#1a0a0a" if req.level == "CRITICAL" else "#1a1400"
-    icon        = "🔴" if req.level == "CRITICAL" else "⚠️"
+    is_critical  = req.level == "CRITICAL"
+    level_color  = "#ef4444" if is_critical else "#f59e0b"
+    level_bg     = "#1a0a0a" if is_critical else "#1a1400"
+    icon         = "🔴"      if is_critical else "⚠️"
 
-    _status_badge = {
+    # Build sensor rows
+    _badge_html = {
         "CRITICAL": '<span style="background:#ef4444;color:#fff;font-size:10px;font-weight:700;padding:2px 7px;border-radius:4px;margin-left:8px">CRITICAL</span>',
         "WARNING":  '<span style="background:#f59e0b;color:#000;font-size:10px;font-weight:700;padding:2px 7px;border-radius:4px;margin-left:8px">WARNING</span>',
         "NORMAL":   '<span style="background:#10b981;color:#fff;font-size:10px;font-weight:700;padding:2px 7px;border-radius:4px;margin-left:8px">NORMAL</span>',
     }
-
-    def _row_color(k):
+    def _row_bg(k):
         st = (req.sensor_statuses or {}).get(k, "NORMAL")
         return "#1a0a0a" if st == "CRITICAL" else "#1a1000" if st == "WARNING" else "transparent"
 
     sensor_rows = "".join(
-        f'<tr style="background:{_row_color(k)}">'
+        f'<tr style="background:{_row_bg(k)}">'
         f'<td style="padding:8px 12px;color:#9ca3af;font-size:13px">{k}</td>'
         f'<td style="padding:8px 12px;color:#f9fafb;font-size:13px;font-weight:600">{v}'
-        f'{_status_badge.get((req.sensor_statuses or {}).get(k,"NORMAL"),"")}</td></tr>'
+        f'{_badge_html.get((req.sensor_statuses or {}).get(k, "NORMAL"), "")}</td></tr>'
         for k, v in req.sensor_summary.items()
     )
 
-    ai_block = ""
+    # Build optional AI block
     if req.ai_risk_level:
         savings_str = f"${req.estimated_savings:,}" if req.estimated_savings else "–"
         hours_str   = f"{req.estimated_hours_to_failure}h" if req.estimated_hours_to_failure else "–"
-        ai_block = f"""
-        <div style="background:#111827;border:1px solid #374151;border-radius:8px;padding:16px;margin-top:16px">
-          <div style="font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:.08em;margin-bottom:10px">AI Analysis</div>
-          <div style="display:flex;gap:24px;flex-wrap:wrap">
-            <div><div style="font-size:11px;color:#6b7280">Risk Level</div>
-              <div style="font-size:20px;font-weight:700;color:{level_color}">{req.ai_risk_level}</div></div>
-            <div><div style="font-size:11px;color:#6b7280">Est. Time to Failure</div>
-              <div style="font-size:20px;font-weight:700;color:#f9fafb">{hours_str}</div></div>
-            <div><div style="font-size:11px;color:#6b7280">Potential Savings</div>
-              <div style="font-size:20px;font-weight:700;color:#10b981">{savings_str}</div></div>
-          </div>
-        </div>"""
+        ai_block = (
+            '<div style="background:#111827;border:1px solid #374151;border-radius:8px;padding:16px;margin-top:16px">'
+            '<div style="font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:.08em;margin-bottom:10px">AI Analysis</div>'
+            '<div style="display:flex;gap:24px;flex-wrap:wrap">'
+            f'<div><div style="font-size:11px;color:#6b7280">Risk Level</div><div style="font-size:20px;font-weight:700;color:{level_color}">{req.ai_risk_level}</div></div>'
+            f'<div><div style="font-size:11px;color:#6b7280">Est. Time to Failure</div><div style="font-size:20px;font-weight:700;color:#f9fafb">{hours_str}</div></div>'
+            f'<div><div style="font-size:11px;color:#6b7280">Potential Savings</div><div style="font-size:20px;font-weight:700;color:#10b981">{savings_str}</div></div>'
+            '</div></div>'
+        )
+    else:
+        ai_block = ""
 
-    ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
-
-    return f"""
-<!DOCTYPE html>
-<html>
-<body style="margin:0;padding:0;background:#0a0e1a;font-family:system-ui,sans-serif">
-<div style="max-width:560px;margin:0 auto;padding:24px">
-
-  <!-- Header -->
-  <div style="background:{level_bg};border:1px solid {level_color};border-radius:12px;padding:20px 24px;margin-bottom:16px">
-    <div style="font-size:11px;color:{level_color};text-transform:uppercase;letter-spacing:.1em;margin-bottom:6px">
-      PumpGuard AI · Alert
-    </div>
-    <div style="font-size:22px;font-weight:700;color:#f9fafb">{icon} {req.level} — Pump Anomaly Detected</div>
-    <div style="font-size:14px;color:#9ca3af;margin-top:6px">{req.message}</div>
-  </div>
-
-  <!-- Health Score -->
-  <div style="background:#111827;border:1px solid #374151;border-radius:8px;padding:16px 24px;margin-bottom:16px;display:flex;align-items:center;gap:16px">
-    <div style="font-size:36px;font-weight:800;color:{level_color}">{int(req.health_score)}%</div>
-    <div>
-      <div style="font-size:12px;color:#6b7280;text-transform:uppercase;letter-spacing:.06em">Machine Health Score</div>
-      <div style="height:6px;background:#1f2937;border-radius:3px;margin-top:8px;width:200px">
-        <div style="height:100%;border-radius:3px;background:{level_color};width:{int(req.health_score)}%"></div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Sensor readings -->
-  <div style="background:#111827;border:1px solid #374151;border-radius:8px;overflow:hidden;margin-bottom:16px">
-    <div style="padding:12px 16px;background:#1f2937;font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:.08em">
-      Sensor Readings
-    </div>
-    <table style="width:100%;border-collapse:collapse">
-      {sensor_rows}
-    </table>
-  </div>
-
-  {ai_block}
-
-  <!-- CTA -->
-  <div style="text-align:center;margin-top:20px">
-    <a href="{_dashboard_url}"
-       style="display:inline-block;background:#06b6d4;color:#000;font-weight:700;font-size:13px;
-              padding:10px 24px;border-radius:6px;text-decoration:none">
-      Open Dashboard →
-    </a>
-  </div>
-
-  <div style="text-align:center;font-size:11px;color:#374151;margin-top:20px">{ts} · PumpGuard AI</div>
-</div>
-</body>
-</html>"""
+    # Load template and replace all placeholders
+    template = open(_EMAIL_TEMPLATE_PATH, encoding="utf-8").read()
+    placeholders = {
+        "{{level_bg}}":     level_bg,
+        "{{level_color}}":  level_color,
+        "{{icon}}":         icon,
+        "{{level}}":        req.level,
+        "{{message}}":      req.message,
+        "{{health_score}}": str(int(req.health_score)),
+        "{{sensor_rows}}":  sensor_rows,
+        "{{ai_block}}":     ai_block,
+        "{{dashboard_url}}": dashboard_url,
+        "{{timestamp}}":    datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC"),
+    }
+    for key, val in placeholders.items():
+        template = template.replace(key, val)
+    return template
 
 
 # Cooldown: prevent sending too many emails in a short period

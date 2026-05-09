@@ -1050,6 +1050,18 @@ function processSensorUpdate(data) {
   // Health + overall
   updateHealthRing(data.health_score ?? 80);
   const os = data.overall_status ?? data.machine_status ?? 'NORMAL';
+
+  // Fix: update main status badge (clears NO DATA once data arrives)
+  const _badgeMain = document.getElementById('badge-normal');
+  if (_badgeMain) {
+    const _bText = { NORMAL:'✅ NORMAL', WARNING:'⚠ WARNING', CRITICAL:'🔴 CRITICAL', BROKEN:'🔴 BROKEN', RECOVERING:'🟡 RECOVERING' };
+    const _bCls  = { NORMAL:'badge-normal', WARNING:'badge-warning', CRITICAL:'badge-critical', BROKEN:'badge-critical', RECOVERING:'badge-warning' };
+    _badgeMain.textContent  = _bText[os] || os;
+    _badgeMain.className    = 'sensor-badge ' + (_bCls[os] || 'badge-normal');
+    _badgeMain.style.background = '';
+    _badgeMain.style.color      = '';
+  }
+
   const statusLabel = document.getElementById('overall-status');
   const colorMap = { NORMAL:'var(--green)', WARNING:'var(--yellow)', CRITICAL:'var(--red)', BROKEN:'var(--red)', RECOVERING:'var(--yellow)' };
   statusLabel.textContent = { NORMAL:'✅ Machine Operating Normally', WARNING:'⚠ Anomaly Detected — Monitor Closely',
@@ -1387,9 +1399,15 @@ function connectWS() {
   ws.onmessage = (evt) => {
     try {
       const data = JSON.parse(evt.data);
-      if      (data.type === 'sensor_update')     processSensorUpdate(data);
-      else if (data.type === 'ai_recommendation') processAIRecommendation(data);
-      else if (data.type === 'state_command')     handleStateCommand(data.state);
+      if (data.type === 'sensor_update') {
+        // Skip WS sensor data while local sim is running — prevents flickering
+        // when control panel overrides the state
+        if (!_simInterval) processSensorUpdate(data);
+      } else if (data.type === 'ai_recommendation') {
+        processAIRecommendation(data);
+      } else if (data.type === 'state_command') {
+        handleStateCommand(data.state);
+      }
     } catch (e) { console.warn('WS parse error', e); }
   };
 }
