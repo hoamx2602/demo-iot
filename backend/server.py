@@ -356,43 +356,27 @@ Analyze this data and provide your predictive maintenance assessment."""
     return await _call_gemini(user_msg)
 
 
-_GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent"
-
 async def _call_gemini(user_msg: str) -> dict:
     if not GEMINI_API_KEY:
         print("[AI] No GEMINI_API_KEY, using mock response")
         return _mock_ai_response_generic()
 
-    payload = {
-        "system_instruction": {
-            "parts": [{"text": SYSTEM_PROMPT}]
-        },
-        "contents": [
-            {"role": "user", "parts": [{"text": user_msg}]}
-        ],
-        "generationConfig": {
-            "responseMimeType": "application/json",
-            "maxOutputTokens": 1500,
-        },
-    }
-
     try:
-        import httpx
-        async with httpx.AsyncClient(timeout=30) as client:
-            resp = await client.post(
-                _GEMINI_URL,
-                headers={"X-goog-api-key": GEMINI_API_KEY, "Content-Type": "application/json"},
-                json=payload,
-            )
+        from google import genai
+        from google.genai import types
 
-        if resp.status_code == 429:
-            print(f"[Gemini] Quota exceeded: {resp.text[:200]}")
-            return _mock_ai_response_generic(error=f"429 quota exceeded — try again later")
-
-        resp.raise_for_status()
-        text = resp.json()["candidates"][0]["content"]["parts"][0]["text"]
-        print(f"[Gemini] OK — model: {resp.json().get('modelVersion', 'unknown')}")
-        return json.loads(text)
+        client = genai.Client(api_key=GEMINI_API_KEY)
+        response = await client.aio.models.generate_content(
+            model=AI_MODEL,
+            contents=user_msg,
+            config=types.GenerateContentConfig(
+                system_instruction=SYSTEM_PROMPT,
+                response_mime_type="application/json",
+                max_output_tokens=1500,
+            ),
+        )
+        print(f"[Gemini] OK — model: {AI_MODEL}")
+        return json.loads(response.text)
 
     except Exception as e:
         print(f"[Gemini API] Error: {e}")
