@@ -133,6 +133,20 @@
   <span class="btn-arrow">›</span>
 </button>
 
+<div class="section-label" style="margin-top:8px">Demo</div>
+
+<button class="btn" id="btn-demo" onclick="runDemo()"
+  style="background:rgba(139,92,246,.15);color:#a78bfa;border:1.5px solid rgba(139,92,246,.35)">
+  <div class="btn-label">
+    <span class="btn-icon">🎬</span>
+    <div>
+      Demo Anomaly Sequence
+      <span class="btn-sub">Normal → Warning (4s) → Critical (3s) → Broken</span>
+    </div>
+  </div>
+  <span class="btn-arrow" id="demo-arrow">›</span>
+</button>
+
 <div class="status-bar">
   Dashboard at <code id="dash-url">–</code><br>
   Control via terminal: <code>curl -X POST /control/warning</code>
@@ -184,6 +198,45 @@ async function sendAI() {
   } catch {
     showToast('⚠ Backend not reachable');
   }
+}
+
+// ── Demo Anomaly Sequence ──────────────────────────────────────
+let _demoRunning = false;
+
+async function runDemo() {
+  if (_demoRunning) {
+    // Cancel
+    _demoRunning = false;
+    document.getElementById('btn-demo').style.opacity = '1';
+    document.getElementById('demo-arrow').textContent = '›';
+    await send('normal');
+    showToast('Demo cancelled → Normal');
+    return;
+  }
+  _demoRunning = true;
+  document.getElementById('demo-arrow').textContent = '⏹';
+  document.getElementById('btn-demo').style.opacity = '.75';
+
+  const steps = [
+    { state: 'normal',   label: '✅ Normal',   wait: 3000 },
+    { state: 'warning',  label: '⚠ Warning',   wait: 4000 },
+    { state: 'critical', label: '🔴 Critical',  wait: 3000 },
+    { state: 'critical', label: '🔴 BROKEN →',  wait: 0    },
+  ];
+
+  for (const step of steps) {
+    if (!_demoRunning) break;
+    showToast(`🎬 ${step.label}`);
+    await fetch(`${BASE}/control/${step.state}`, { method: 'POST' });
+    if (step.wait > 0) await new Promise(r => setTimeout(r, step.wait));
+  }
+
+  if (_demoRunning) {
+    showToast('🎬 Demo complete — BROKEN state active');
+  }
+  _demoRunning = false;
+  document.getElementById('btn-demo').style.opacity = '1';
+  document.getElementById('demo-arrow').textContent = '›';
 }
 
 // Toast

@@ -761,6 +761,15 @@
     </div>
   </div>
 
+  <!-- Event Log -->
+  <div class="card" style="margin-top:16px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+      <div class="card-title" style="margin-bottom:0">📋 Event Log <span style="font-size:.7rem;font-weight:400;color:var(--text-muted)">(persisted · max 500)</span></div>
+      <button onclick="_clearLogs()" style="font-size:.7rem;padding:4px 10px;border-radius:5px;border:1px solid var(--border);background:transparent;color:var(--text-muted);cursor:pointer">Clear</button>
+    </div>
+    <div id="log-entries" style="max-height:260px;overflow-y:auto;font-family:monospace"></div>
+  </div>
+
 </div>
 
 <!-- ══ Operator Controls ════════════════════════════════════════════════════ -->
@@ -895,11 +904,63 @@ function updateSensorCard(name, val, statusOverride) {
 
 // Các label/unit hiển thị cho từng sensor
 const _SENSOR_DISPLAY = {
-  vibration:   { label: '⚡ Vibration',   unit: 'mm/s', warnTxt: '> 4.5', critTxt: '> 6.5' },
-  temperature: { label: '🌡 Temperature', unit: '°C',   warnTxt: '> 85',  critTxt: '> 95'  },
-  pressure:    { label: '📊 Pressure',    unit: 'bar',  warnTxt: '> 8.0', critTxt: '> 10.0'},
-  flow_rate:   { label: '💧 Flow Rate',   unit: 'm³/h', warnTxt: '< 120', critTxt: '< 100' },
+  vibration:   { label: '⚡ Vibration',   sensors: 'sensor_00 ~ sensor_12', unit: 'mm/s', warnTxt: '> 4.5', critTxt: '> 6.5' },
+  temperature: { label: '🌡 Temperature', sensors: 'sensor_13 ~ sensor_24', unit: '°C',   warnTxt: '> 85',  critTxt: '> 95'  },
+  pressure:    { label: '📊 Pressure',    sensors: 'sensor_25 ~ sensor_38', unit: 'bar',  warnTxt: '> 8.0', critTxt: '> 10.0'},
+  flow_rate:   { label: '💧 Flow Rate',   sensors: 'sensor_39 ~ sensor_51', unit: 'm³/h', warnTxt: '< 120', critTxt: '< 100' },
 };
+
+// ═══════════════════════════════════════════════════════════════
+// LOCAL STORAGE LOG
+// ═══════════════════════════════════════════════════════════════
+const _LOG_KEY = 'pumpguard_logs';
+const _LOG_MAX = 500;
+
+function _appendLog(type, extra = {}) {
+  try {
+    const logs = JSON.parse(localStorage.getItem(_LOG_KEY) || '[]');
+    logs.push({ ts: new Date().toISOString(), type, ...extra });
+    if (logs.length > _LOG_MAX) logs.splice(0, logs.length - _LOG_MAX);
+    localStorage.setItem(_LOG_KEY, JSON.stringify(logs));
+  } catch(e) {}
+}
+
+function _getLogs() {
+  try { return JSON.parse(localStorage.getItem(_LOG_KEY) || '[]'); } catch { return []; }
+}
+
+function _clearLogs() {
+  localStorage.removeItem(_LOG_KEY);
+  renderLogPanel();
+}
+
+function renderLogPanel() {
+  const el = document.getElementById('log-entries');
+  if (!el) return;
+  const logs = _getLogs().slice().reverse(); // newest first
+  if (!logs.length) {
+    el.innerHTML = '<div style="color:var(--text-muted);font-size:.78rem;padding:12px 0">No logs yet — start the simulator.</div>';
+    return;
+  }
+  const typeColor = { status_change:'#06b6d4', sensor_alert:'#ef4444', session_start:'#10b981',
+                      email_sent:'#8b5cf6', ai_result:'#f59e0b', sensor_warning:'#f59e0b' };
+  el.innerHTML = logs.map(l => {
+    const t   = new Date(l.ts).toLocaleTimeString();
+    const col = typeColor[l.type] || '#94a3b8';
+    let detail = '';
+    if (l.type === 'status_change')  detail = `${l.from} → <b>${l.to}</b>  health=${l.health}%`;
+    else if (l.type === 'sensor_alert') detail = Object.entries(l.sensors||{}).map(([k,v])=>`${k}=${v}`).join(' · ');
+    else if (l.type === 'email_sent')   detail = `level=${l.level}`;
+    else if (l.type === 'ai_result')    detail = `risk=${l.risk}`;
+    else if (l.type === 'session_start') detail = 'Dashboard loaded';
+    else detail = JSON.stringify(l).slice(0,80);
+    return `<div style="display:flex;gap:10px;padding:5px 0;border-bottom:1px solid var(--border);font-size:.75rem">
+      <span style="color:var(--text-muted);min-width:70px">${t}</span>
+      <span style="color:${col};min-width:110px;font-weight:600">${l.type}</span>
+      <span style="color:var(--text)">${detail}</span>
+    </div>`;
+  }).join('');
+}
 
 function refreshAlertPanel() {
   const panel = document.getElementById('alert-panel');
@@ -917,8 +978,12 @@ function refreshAlertPanel() {
   panel.querySelector('div').style.color =
     bad.some(([,s])=>s.status==='CRITICAL') ? '#ef4444' : '#f59e0b';
 
+  // Log khi có sensor alert
+  const alertEntry = { sensors: Object.fromEntries(bad.map(([n,s])=>[n, s.fmt + _SENSOR_DISPLAY[n]?.unit])) };
+  _appendLog('sensor_alert', alertEntry);
+
   list.innerHTML = bad.map(([name, s]) => {
-    const d = _SENSOR_DISPLAY[name] || { label: name, unit: '', warnTxt:'', critTxt:'' };
+    const d = _SENSOR_DISPLAY[name] || { label: name, sensors: '', unit: '', warnTxt:'', critTxt:'' };
     const isCrit = s.status === 'CRITICAL';
     const color  = isCrit ? '#ef4444' : '#f59e0b';
     const thresh = isCrit ? d.critTxt : d.warnTxt;
@@ -930,7 +995,10 @@ function refreshAlertPanel() {
         </div>
         <div style="flex:1">
           <div style="font-size:.82rem;font-weight:700;color:var(--text)">${d.label}</div>
-          <div style="font-size:.75rem;color:var(--text-muted);margin-top:2px">
+          <div style="font-size:.72rem;color:${color};opacity:.85;margin-top:1px;font-family:monospace">
+            ${d.sensors}
+          </div>
+          <div style="font-size:.72rem;color:var(--text-muted);margin-top:2px">
             Threshold: ${thresh} ${d.unit}
           </div>
         </div>
@@ -1016,6 +1084,13 @@ function processSensorUpdate(data) {
   updateSensorPage(data);
 
   // First anomaly detection
+  // Log status change
+  if (os !== (state._lastLoggedStatus || 'NORMAL')) {
+    _appendLog('status_change', { from: state._lastLoggedStatus || 'NORMAL', to: os, health: Math.round(data.health_score ?? 80) });
+    state._lastLoggedStatus = os;
+    renderLogPanel();
+  }
+
   if (!state.firstAnomalyDetected && (os === 'WARNING' || os === 'CRITICAL' || os === 'BROKEN')) {
     state.firstAnomalyDetected = true;
     state.firstAnomalyRow = data.row;
@@ -1027,11 +1102,10 @@ function processSensorUpdate(data) {
   }
 
   // Auto email khi nhận real MQTT data có trạng thái bất ổn
-  // (chỉ khi WebSocket đang live, không phải JS simulator)
   if (wsConnected && (os === 'CRITICAL' || os === 'BROKEN' || os === 'WARNING')) {
     const emailLevel = (os === 'CRITICAL' || os === 'BROKEN') ? 'CRITICAL' : 'WARNING';
     const now = Date.now();
-    const cooldown = emailLevel === 'CRITICAL' ? 120_000 : 300_000; // 2 min / 5 min
+    const cooldown = emailLevel === 'CRITICAL' ? 120_000 : 300_000;
     if (now - state._lastEmailTime > cooldown || state._lastEmailLevel !== emailLevel) {
       state._lastEmailTime  = now;
       state._lastEmailLevel = emailLevel;
@@ -1440,6 +1514,8 @@ async function sendEmailAlert(level) {
     const result = await resp.json();
     if (result.status === 'sent') {
       addEvent('info', `📧 Alert email sent (${level})`);
+      _appendLog('email_sent', { level, health: Math.round(health), badSensors });
+      renderLogPanel();
     } else if (result.status === 'skipped') {
       console.info('[Alert] Skipped:', result.reason);
     }
@@ -1938,6 +2014,8 @@ setInterval(() => {
 initSensorPage();
 showWaitingState();
 connectWS();
+_appendLog('session_start');
+renderLogPanel();
 </script>
 </body>
 </html>
