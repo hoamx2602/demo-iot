@@ -22,6 +22,7 @@ import asyncio
 import json
 import os
 import ssl
+import threading
 import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -181,11 +182,13 @@ class MQTTBridge:
             client_id="backend-bridge",
             protocol=mqtt.MQTTv311,
         )
-        self.client.on_connect = self._on_connect
-        self.client.on_message = self._on_message
+        self.client.on_connect    = self._on_connect
+        self.client.on_disconnect = self._on_disconnect
+        self.client.on_message    = self._on_message
         self.loop: Optional[asyncio.AbstractEventLoop] = None
         self._last_analysis_time = 0.0
-        self._analysis_cooldown = 10.0  # seconds between AI calls
+        self._analysis_cooldown  = 10.0
+        self._stopping           = False
 
     def _on_connect(self, client, userdata, connect_flags, reason_code, properties):
         if not reason_code.is_failure:
@@ -193,6 +196,25 @@ class MQTTBridge:
             client.subscribe(TOPIC_SENSORS, qos=1)
         else:
             print(f"[MQTT Bridge] ❌ Connection failed: {reason_code}")
+
+    def _on_disconnect(self, client, userdata, disconnect_flags, reason_code, properties):
+        if self._stopping:
+            return
+        print(f"[MQTT Bridge] Disconnected (rc={reason_code}), will retry...")
+        threading.Thread(target=self._reconnect_loop, daemon=True).start()
+
+    def _reconnect_loop(self):
+        for delay in [2, 4, 8, 16, 30]:
+            if self._stopping:
+                return
+            time.sleep(delay)
+            try:
+                self.client.reconnect()
+                print(f"[MQTT Bridge] ✅ Reconnected to {MQTT_HOST}:{MQTT_PORT}")
+                return
+            except Exception as e:
+                print(f"[MQTT Bridge] Reconnect failed ({delay}s delay): {e}")
+        print(f"[MQTT Bridge] ❌ Could not reconnect after retries")
 
     def _on_message(self, client, userdata, msg):
         if self.loop is None:
@@ -262,22 +284,28 @@ class MQTTBridge:
             print(f"[Auto-Analysis] Error: {e}")
 
     def start(self, loop: asyncio.AbstractEventLoop):
-        self.loop = loop
-        try:
-            if MQTT_USERNAME:
-                self.client.username_pw_set(MQTT_USERNAME, MQTT_PASSWORD)
-            use_tls = MQTT_TLS or MQTT_PORT == 8883
-            if use_tls:
-                self.client.tls_set(tls_version=ssl.PROTOCOL_TLS_CLIENT)
-                print(f"[MQTT Bridge] TLS enabled")
-            self.client.connect(MQTT_HOST, MQTT_PORT, keepalive=60)
-            self.client.loop_start()
-            print(f"[MQTT Bridge] Connecting to {MQTT_HOST}:{MQTT_PORT} (TLS={use_tls})")
-        except Exception as e:
-            print(f"[MQTT Bridge] Warning: Could not connect: {e}")
-            print("  Dashboard will work, but won't receive live MQTT data.")
+        self.loop     = loop
+        self._stopping = False
+        if MQTT_USERNAME:
+            self.client.username_pw_set(MQTT_USERNAME, MQTT_PASSWORD)
+        use_tls = MQTT_TLS or MQTT_PORT == 8883
+        if use_tls:
+            self.client.tls_set(tls_version=ssl.PROTOCOL_TLS_CLIENT)
+        self.client.loop_start()
+        # Retry initial connection (Mosquitto có thể chưa kịp ready)
+        for attempt in range(8):
+            try:
+                self.client.connect(MQTT_HOST, MQTT_PORT, keepalive=60)
+                print(f"[MQTT Bridge] Connecting to {MQTT_HOST}:{MQTT_PORT} (TLS={use_tls})")
+                return
+            except Exception as e:
+                wait = 2 ** min(attempt, 4)
+                print(f"[MQTT Bridge] Connect attempt {attempt+1} failed: {e} — retry in {wait}s")
+                time.sleep(wait)
+        print(f"[MQTT Bridge] ❌ Could not connect to {MQTT_HOST}:{MQTT_PORT} after 8 attempts")
 
     def stop(self):
+        self._stopping = True
         self.client.loop_stop()
         self.client.disconnect()
 
@@ -313,6 +341,7 @@ DASHBOARD_DIR = os.path.join(os.path.dirname(__file__), "..", "dashboard")
 async def presenter_control():
     control_path = os.path.join(DASHBOARD_DIR, "control.html")
     return FileResponse(control_path)
+
 
 if os.path.isdir(DASHBOARD_DIR):
     app.mount("/dashboard", StaticFiles(directory=DASHBOARD_DIR, html=True), name="dashboard")
