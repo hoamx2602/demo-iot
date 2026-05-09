@@ -219,7 +219,7 @@ nb = {
     "cells": cells,
 }
 
-out = "/Users/hoamai/Documents/Claude/Projects/IOT/pump-iot-demo/notebooks/PumpGuard_Colab.ipynb"
+out = os.path.join(os.path.dirname(os.path.abspath(__file__)), "PumpGuard_Colab.ipynb")
 with open(out, "w", encoding="utf-8") as f:
     json.dump(nb, f, ensure_ascii=False, indent=1)
-print(f"✅ Notebook generated: {len(cells)} cells")
+print(f"✅ Notebook generated: {len(cells)} cells → {out}")

@@ -155,10 +155,13 @@
 <div class="toast" id="toast"></div>
 
 <script>
-const BASE = `${location.protocol}//${location.hostname}:8000`;
+// Smart URL: localhost → add :8000, cloud/ngrok/Colab → no port (already proxied)
+const _isLocal = ['localhost', '127.0.0.1'].includes(location.hostname);
+const _port    = _isLocal ? ':8000' : '';
+const BASE = `${location.protocol}//${location.hostname}${_port}`;
 
 document.getElementById('dash-url').textContent =
-  `${location.hostname}:8000/dashboard/`;
+  `${location.hostname}${_port}/dashboard/`;
 
 // Health check
 async function checkBackend() {
