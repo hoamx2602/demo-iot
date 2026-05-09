@@ -6,7 +6,6 @@
     "disabled": false,
     "info": "Predictive Maintenance - Industrial Pump Demo"
   },
-
   {
     "id": "mqtt_in",
     "type": "mqtt in",
@@ -21,9 +20,12 @@
     "rh": 0,
     "x": 120,
     "y": 80,
-    "wires": [["parse_validate"]]
+    "wires": [
+      [
+        "parse_validate"
+      ]
+    ]
   },
-
   {
     "id": "mqtt_broker",
     "type": "mqtt-broker",
@@ -54,7 +56,6 @@
     "willMsg": {},
     "sessionExpiry": ""
   },
-
   {
     "id": "parse_validate",
     "type": "function",
@@ -68,9 +69,12 @@
     "libs": [],
     "x": 340,
     "y": 80,
-    "wires": [["rolling_buffer"]]
+    "wires": [
+      [
+        "rolling_buffer"
+      ]
+    ]
   },
-
   {
     "id": "rolling_buffer",
     "type": "function",
@@ -84,9 +88,12 @@
     "libs": [],
     "x": 560,
     "y": 80,
-    "wires": [["compute_trends"]]
+    "wires": [
+      [
+        "compute_trends"
+      ]
+    ]
   },
-
   {
     "id": "compute_trends",
     "type": "function",
@@ -100,9 +107,13 @@
     "libs": [],
     "x": 790,
     "y": 80,
-    "wires": [["route_normal", "route_anomaly", "ws_out"]]
+    "wires": [
+      [
+        "route_normal",
+        "route_anomaly"
+      ]
+    ]
   },
-
   {
     "id": "route_normal",
     "type": "switch",
@@ -110,15 +121,24 @@
     "name": "If NORMAL",
     "property": "payload.overall_status",
     "propertyType": "msg",
-    "rules": [{"t": "eq", "v": "NORMAL", "vt": "str"}],
+    "rules": [
+      {
+        "t": "eq",
+        "v": "NORMAL",
+        "vt": "str"
+      }
+    ],
     "checkall": "true",
     "repair": false,
     "outputs": 1,
     "x": 1030,
     "y": 40,
-    "wires": [["debug_normal"]]
+    "wires": [
+      [
+        "debug_normal"
+      ]
+    ]
   },
-
   {
     "id": "route_anomaly",
     "type": "switch",
@@ -126,15 +146,22 @@
     "name": "If WARNING or CRITICAL",
     "property": "payload.anomaly_detected",
     "propertyType": "msg",
-    "rules": [{"t": "true"}],
+    "rules": [
+      {
+        "t": "true"
+      }
+    ],
     "checkall": "true",
     "repair": false,
     "outputs": 1,
     "x": 1060,
     "y": 120,
-    "wires": [["throttle_ai"]]
+    "wires": [
+      [
+        "throttle_ai"
+      ]
+    ]
   },
-
   {
     "id": "debug_normal",
     "type": "debug",
@@ -152,7 +179,6 @@
     "y": 40,
     "wires": []
   },
-
   {
     "id": "throttle_ai",
     "type": "delay",
@@ -172,9 +198,12 @@
     "outputs": 1,
     "x": 1090,
     "y": 180,
-    "wires": [["prepare_ai_payload"]]
+    "wires": [
+      [
+        "prepare_ai_payload"
+      ]
+    ]
   },
-
   {
     "id": "prepare_ai_payload",
     "type": "function",
@@ -188,14 +217,17 @@
     "libs": [],
     "x": 1090,
     "y": 240,
-    "wires": [["call_ai_api"]]
+    "wires": [
+      [
+        "call_ai_api"
+      ]
+    ]
   },
-
   {
     "id": "call_ai_api",
     "type": "http request",
     "z": "tab_pump_demo",
-    "name": "POST → AI Backend /analyze",
+    "name": "POST \u2192 AI Backend /analyze",
     "method": "POST",
     "ret": "obj",
     "paytoqs": "ignore",
@@ -206,12 +238,22 @@
     "insecureHTTPParser": false,
     "authType": "",
     "senderr": false,
-    "headers": [{"keyType": "str", "keyValue": "Content-Type", "valueType": "str", "valueValue": "application/json"}],
+    "headers": [
+      {
+        "keyType": "str",
+        "keyValue": "Content-Type",
+        "valueType": "str",
+        "valueValue": "application/json"
+      }
+    ],
     "x": 1100,
     "y": 300,
-    "wires": [["process_ai_response"]]
+    "wires": [
+      [
+        "process_ai_response"
+      ]
+    ]
   },
-
   {
     "id": "process_ai_response",
     "type": "function",
@@ -225,40 +267,12 @@
     "libs": [],
     "x": 1100,
     "y": 360,
-    "wires": [["ws_ai_out", "debug_ai"]]
+    "wires": [
+      [
+        "debug_ai"
+      ]
+    ]
   },
-
-  {
-    "id": "ws_out",
-    "type": "websocket out",
-    "z": "tab_pump_demo",
-    "name": "WS → Dashboard (sensors)",
-    "server": "ws_server",
-    "client": "",
-    "x": 1060,
-    "y": 460,
-    "wires": []
-  },
-
-  {
-    "id": "ws_ai_out",
-    "type": "websocket out",
-    "z": "tab_pump_demo",
-    "name": "WS → Dashboard (AI)",
-    "server": "ws_server",
-    "client": "",
-    "x": 1310,
-    "y": 360,
-    "wires": []
-  },
-
-  {
-    "id": "ws_server",
-    "type": "websocket-listener",
-    "path": "/ws/pump",
-    "wholemsg": "false"
-  },
-
   {
     "id": "debug_ai",
     "type": "debug",
