@@ -483,14 +483,34 @@ async def websocket_endpoint(websocket: WebSocket):
 
 @app.post("/simulate/inject")
 async def inject_sensor_data(payload: dict):
-    """Inject sensor data directly (for simulation without MQTT)."""
+    """Inject sensor data directly (for simulation without MQTT).
+
+    If a presenter forced-state is active (set via /control/{state}),
+    overall_status and machine_status are overridden so the dashboard
+    cannot flicker back to a different state while the demo is locked.
+    Sensor gauge values (vibration, temperature, …) are left untouched
+    so the live readings still animate normally.
+    """
+    global _forced_state
     payload["type"] = "sensor_update"
+    if _forced_state is not None:
+        payload.update(_FORCED_STATUS_MAP[_forced_state])
     await manager.broadcast(payload)
     return {"status": "injected", "clients": len(manager.active)}
 
 
 # ─── Presenter Control ────────────────────────────────────────────────────────
 VALID_STATES = {"normal", "warning", "critical"}
+
+# Forced-state lock: set by /control/{state} so that Node-RED's /simulate/inject
+# cannot override overall_status while a presenter state is active.
+_forced_state: str | None = None   # None = free-running, else "normal"/"warning"/"critical"
+
+_FORCED_STATUS_MAP = {
+    "normal":   {"overall_status": "NORMAL",   "machine_status": "NORMAL",  "anomaly_detected": False},
+    "warning":  {"overall_status": "WARNING",  "machine_status": "BROKEN",  "anomaly_detected": True},
+    "critical": {"overall_status": "CRITICAL", "machine_status": "BROKEN",  "anomaly_detected": True},
+}
 
 @app.post("/control/{state}")
 async def control_state(state: str):
@@ -503,9 +523,14 @@ async def control_state(state: str):
         curl -X POST http://localhost:8000/control/critical
         curl -X POST http://localhost:8000/control/normal
     """
+    global _forced_state
     state = state.lower()
     if state not in VALID_STATES:
         return {"status": "error", "reason": f"Invalid state. Use: {VALID_STATES}"}
+
+    # Lock / unlock the forced-state so Node-RED inject cannot flicker the status
+    _forced_state = None if state == "normal" else state
+    print(f"[Control] Forced state → {_forced_state or 'FREE (normal)'}")
 
     await manager.broadcast({
         "type":    "state_command",
@@ -742,12 +767,18 @@ async def _do_send_alert(req: AlertRequest) -> dict:
             else "⚠️ WARNING — Pump Anomaly Detected"
         )
 
-        resend.Emails.send({
-            "from":    ALERT_FROM,
-            "to":      ALERT_TO,
-            "subject": subject,
-            "html":    _build_email_html(req),
-        })
+        # resend.Emails.send is synchronous (blocking HTTP) — run in thread
+        # so it never blocks the asyncio event loop / WebSocket broadcasts.
+        html_body = _build_email_html(req)
+        await asyncio.to_thread(
+            resend.Emails.send,
+            {
+                "from":    ALERT_FROM,
+                "to":      ALERT_TO,
+                "subject": subject,
+                "html":    html_body,
+            },
+        )
 
         _last_alert_time = now
         print(f"[Alert] Email sent → {ALERT_TO} ({req.level})")
