@@ -41,6 +41,18 @@ load_dotenv()
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 AI_MODEL     = os.getenv("AI_MODEL", "llama-3.3-70b-versatile")  # Groq free: 14,400 req/day, 30 RPM
 
+# Singleton Groq client — created once, reused for all calls.
+# Creating a new AsyncGroq() per call leaks httpx connections and
+# exhausts file descriptors after many requests → server timeout.
+_groq_client = None
+if GROQ_API_KEY:
+    from groq import AsyncGroq
+    _groq_client = AsyncGroq(api_key=GROQ_API_KEY)
+
+# Limit concurrent AI calls to 2 — prevents runaway coroutine
+# accumulation when Node-RED + dashboard both trigger analysis.
+_ai_semaphore = asyncio.Semaphore(2)
+
 MQTT_HOST     = os.getenv("MQTT_HOST", "localhost")
 MQTT_PORT     = int(os.getenv("MQTT_PORT", "1883"))
 MQTT_USERNAME = os.getenv("MQTT_USERNAME", "")
@@ -316,31 +328,35 @@ Analyze this data and provide your predictive maintenance assessment."""
 
 
 async def _call_groq(user_msg: str) -> dict:
-    if not GROQ_API_KEY:
+    if not _groq_client:
         print("[AI] No GROQ_API_KEY, using mock response")
         return _mock_ai_response_generic()
 
-    try:
-        from groq import AsyncGroq
+    async with _ai_semaphore:   # max 2 concurrent calls
+        try:
+            response = await asyncio.wait_for(
+                _groq_client.chat.completions.create(
+                    model=AI_MODEL,
+                    messages=[
+                        {"role": "system", "content": SYSTEM_PROMPT},
+                        {"role": "user",   "content": user_msg},
+                    ],
+                    response_format={"type": "json_object"},
+                    max_tokens=2048,
+                    temperature=0.3,
+                ),
+                timeout=45.0,   # give up after 45s — never block forever
+            )
+            text = response.choices[0].message.content
+            print(f"[Groq] OK — model: {AI_MODEL}  tokens: {response.usage.total_tokens}")
+            return json.loads(text)
 
-        client = AsyncGroq(api_key=GROQ_API_KEY)
-        response = await client.chat.completions.create(
-            model=AI_MODEL,
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user",   "content": user_msg},
-            ],
-            response_format={"type": "json_object"},
-            max_tokens=2048,
-            temperature=0.3,
-        )
-        text = response.choices[0].message.content
-        print(f"[Groq] OK — model: {AI_MODEL}  tokens: {response.usage.total_tokens}")
-        return json.loads(text)
-
-    except Exception as e:
-        print(f"[Groq API] Error: {e}")
-        return _mock_ai_response_generic(error=str(e))
+        except asyncio.TimeoutError:
+            print("[Groq] Timeout after 45s — returning mock")
+            return _mock_ai_response_generic(error="Groq API timeout")
+        except Exception as e:
+            print(f"[Groq API] Error: {e}")
+            return _mock_ai_response_generic(error=str(e))
 
 
 def _mock_ai_response_generic(error: str = None) -> dict:
@@ -684,6 +700,9 @@ class AlertRequest(BaseModel):
 
 
 _EMAIL_TEMPLATE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "email_alert.html")
+# Cache template in memory — avoids synchronous file I/O on every alert.
+# Loaded lazily on first use; reload by restarting the server.
+_EMAIL_TEMPLATE_CACHE: str | None = None
 
 def _build_email_html(req: AlertRequest) -> str:
     # Re-read .env so PUBLIC_URL is always fresh (no restart needed after tunnel is set)
@@ -734,8 +753,11 @@ def _build_email_html(req: AlertRequest) -> str:
     else:
         ai_block = ""
 
-    # Load template and replace all placeholders
-    template = open(_EMAIL_TEMPLATE_PATH, encoding="utf-8").read()
+    # Load template from cache (avoid blocking file I/O in async path)
+    global _EMAIL_TEMPLATE_CACHE
+    if _EMAIL_TEMPLATE_CACHE is None:
+        _EMAIL_TEMPLATE_CACHE = open(_EMAIL_TEMPLATE_PATH, encoding="utf-8").read()
+    template = _EMAIL_TEMPLATE_CACHE
     placeholders = {
         "{{level_bg}}":     level_bg,
         "{{level_color}}":  level_color,
