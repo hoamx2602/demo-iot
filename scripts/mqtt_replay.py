@@ -42,8 +42,11 @@ TOPIC_STATUS  = "pump/status"
 TOPIC_CONTROL = "pump/control"   # subscribe to receive pause/resume/jump commands
 
 # Each CSV row represents 1 minute of real data.
-# We want 1 hour (60 rows) to play back in 10 seconds → interval = 10/60 ≈ 0.167s
-TIME_COMPRESSION = 360  # 1 minute of data → 1/6 second in demo
+# Compression ratio controls publish rate:
+#   360x → 6 msg/s (167ms interval) — fast demo, may overwhelm slow networks
+#   60x  → 1 msg/s (1000ms interval) — stable default for workshop
+#   30x  → 1 msg/2s — for very slow connections
+TIME_COMPRESSION = 60  # 1 minute of data → 1 second in demo
 
 
 class PumpReplay:
