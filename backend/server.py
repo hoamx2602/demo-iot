@@ -210,12 +210,21 @@ class MQTTBridge:
         try:
             payload = json.loads(msg.payload.decode())
             payload["type"] = "sensor_update"
-            # Cache for /latest endpoint — dashboard enriched data comes via Node-RED /simulate/inject
-            global _last_sensor_payload
+            # Cache for /latest endpoint
+            global _last_sensor_payload, _forced_state
             _last_sensor_payload = payload
-            # Broadcast raw payload as fallback (first 5 readings before Node-RED buffer is ready,
-            # or when Node-RED is not running). Node-RED's /simulate/inject will override with
-            # enriched data (trends, overall_status) once its rolling buffer has ≥ 5 readings.
+
+            # If Node-RED injected data recently (within 5s), stay silent —
+            # Node-RED will broadcast enriched data via /simulate/inject.
+            # This prevents double-broadcast / status flickering on the dashboard.
+            nodered_active = (time.time() - _nodered_last_inject) < 5.0
+            if nodered_active:
+                return
+
+            # Node-RED is offline or warming up — broadcast raw MQTT as fallback.
+            # Apply forced-state override so the control panel still works correctly.
+            if _forced_state is not None:
+                payload.update(_FORCED_STATUS_MAP[_forced_state])
             asyncio.run_coroutine_threadsafe(
                 manager.broadcast(payload),
                 self.loop
@@ -491,7 +500,8 @@ async def inject_sensor_data(payload: dict):
     Sensor gauge values (vibration, temperature, …) are left untouched
     so the live readings still animate normally.
     """
-    global _forced_state
+    global _forced_state, _nodered_last_inject
+    _nodered_last_inject = time.time()   # tell MQTT bridge Node-RED is alive
     payload["type"] = "sensor_update"
     if _forced_state is not None:
         payload.update(_FORCED_STATUS_MAP[_forced_state])
@@ -505,6 +515,11 @@ VALID_STATES = {"normal", "warning", "critical"}
 # Forced-state lock: set by /control/{state} so that Node-RED's /simulate/inject
 # cannot override overall_status while a presenter state is active.
 _forced_state: str | None = None   # None = free-running, else "normal"/"warning"/"critical"
+
+# Tracks when Node-RED last called /simulate/inject.
+# Used by the MQTT bridge to suppress its own raw broadcast while Node-RED is active
+# (prevents double-publish and status flickering on the dashboard).
+_nodered_last_inject: float = 0.0
 
 _FORCED_STATUS_MAP = {
     "normal":   {"overall_status": "NORMAL",   "machine_status": "NORMAL",  "anomaly_detected": False},

@@ -1473,12 +1473,12 @@ function setNormalState()   {
 function setWarningState()  {
   startSimStream('warning');
   addEvent('warning', '⚠ Anomaly conditions applied');
-  sendEmailAlert('WARNING');
+  // Email triggered by processSensorUpdate with cooldown — no direct call to avoid double-send.
 }
 function setCriticalState() {
   startSimStream('critical');
   addEvent('critical', '🔴 Critical conditions applied');
-  sendEmailAlert('CRITICAL');
+  // Email triggered by processSensorUpdate with cooldown — no direct call to avoid double-send.
 }
 
 async function sendEmailAlert(level) {
@@ -1490,10 +1490,10 @@ async function sendEmailAlert(level) {
   const sensorSummary   = {};
   const sensorStatuses  = {};
   const defs = [
-    { key: 'vibration',   label: 'Vibration',   unit: 'mm/s', dec: 2, warn: 4.5,  crit: 6.5,  inv: false },
+    { key: 'vibration',   label: 'Vibration',   unit: 'mm/s', dec: 2, warn: 4.5,  crit: 7.0,  inv: false },
     { key: 'temperature', label: 'Temperature', unit: '°C',   dec: 1, warn: 85,   crit: 95,   inv: false },
-    { key: 'pressure',    label: 'Pressure',    unit: 'bar',  dec: 2, warn: 8.0,  crit: 10.0, inv: false },
-    { key: 'flow_rate',   label: 'Flow Rate',   unit: 'm³/h', dec: 1, warn: 120,  crit: 100,  inv: true  },
+    { key: 'pressure',    label: 'Pressure',    unit: 'bar',  dec: 2, warn: 8.5,  crit: 10.0, inv: false },
+    { key: 'flow_rate',   label: 'Flow Rate',   unit: 'm³/h', dec: 1, warn: 110,  crit: 90,   inv: true  },
   ];
   for (const d of defs) {
     const val = sensors[d.key] ?? 0;
@@ -1545,7 +1545,7 @@ async function sendEmailAlert(level) {
 function startSimStream(profile) {
   if (_simInterval) clearInterval(_simInterval);
   processSensorUpdate(makeSensorPayload(profile));
-  _simInterval = setInterval(() => processSensorUpdate(makeSensorPayload(profile)), 500);
+  _simInterval = setInterval(() => processSensorUpdate(makeSensorPayload(profile)), 1000);
 }
 
 async function runAIAnalysis() {
