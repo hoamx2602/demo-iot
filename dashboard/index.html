@@ -1465,7 +1465,9 @@ function connectWS() {
   ws.onmessage = (evt) => {
     try {
       const data = JSON.parse(evt.data);
-      if (data.type === 'sensor_update') {
+      if (data.type === 'ping') {
+        // Server keepalive ping — ignore silently
+      } else if (data.type === 'sensor_update') {
         // Skip WS sensor data while local sim is running — prevents flickering
         // when control panel overrides the state
         if (!_simInterval) processSensorUpdate(data);
@@ -1592,7 +1594,8 @@ async function sendEmailAlert(level) {
 
   try {
     const resp = await fetch(API_URL + '/alert', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true' },
       body: JSON.stringify(body),
     });
     const result = await resp.json();
@@ -1631,7 +1634,8 @@ async function runAIAnalysis() {
   // Try live backend first, fallback to pre-loaded analysis
   try {
     const resp = await fetch(API_URL + '/analyze', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true' },
       body: JSON.stringify({ snapshot })
     });
     if (!resp.ok) throw new Error('API error');
@@ -1683,10 +1687,23 @@ function toggleControls() {
 // ═══════════════════════════════════════════════════════════════
 function handleStateCommand(state) {
   switch (state) {
-    case 'normal':     setNormalState();   break;
-    case 'warning':    setWarningState();  break;
-    case 'critical':   setCriticalState(); break;
-    case 'trigger_ai': runAIAnalysis();    break;
+    case 'normal':
+      setNormalState();
+      break;
+    case 'warning':
+      setWarningState();
+      // Auto-run AI after 600ms so the sim stream has time to populate
+      // latestPayload with warning-profile sensor data before analysis starts.
+      setTimeout(() => runAIAnalysis(), 600);
+      break;
+    case 'critical':
+      setCriticalState();
+      // Same: let the sim generate one critical-profile tick first.
+      setTimeout(() => runAIAnalysis(), 600);
+      break;
+    case 'trigger_ai':
+      runAIAnalysis();
+      break;
   }
 }
 

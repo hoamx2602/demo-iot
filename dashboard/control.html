@@ -164,9 +164,11 @@ document.getElementById('dash-url').textContent =
   `${location.hostname}${_port}/dashboard/`;
 
 // Health check
+const _NGROK_HDR = { 'ngrok-skip-browser-warning': 'true' };
+
 async function checkBackend() {
   try {
-    const r = await fetch(BASE + '/health');
+    const r = await fetch(BASE + '/health', { headers: _NGROK_HDR });
     if (r.ok) {
       document.getElementById('dot').className = 'dot ok';
       document.getElementById('conn-label').textContent = 'Connected';
@@ -183,7 +185,7 @@ setInterval(checkBackend, 5000);
 async function send(state) {
   showToast('Sending…');
   try {
-    const r = await fetch(`${BASE}/control/${state}`, { method: 'POST' });
+    const r = await fetch(`${BASE}/control/${state}`, { method: 'POST', headers: _NGROK_HDR });
     const d = await r.json();
     const labels = { normal: '✅ Normal', warning: '⚠ Anomaly', critical: '🔴 Critical' };
     showToast(`${labels[state]} → ${d.clients} screen(s)`);
@@ -195,7 +197,7 @@ async function send(state) {
 async function sendAI() {
   showToast('Triggering AI analysis…');
   try {
-    const r = await fetch(`${BASE}/control/ai/trigger`, { method: 'POST' });
+    const r = await fetch(`${BASE}/control/ai/trigger`, { method: 'POST', headers: _NGROK_HDR });
     const d = await r.json();
     showToast(`🤖 AI triggered → ${d.clients} screen(s)`);
   } catch {
@@ -230,7 +232,7 @@ async function runDemo() {
   for (const step of steps) {
     if (!_demoRunning) break;
     showToast(`🎬 ${step.label}`);
-    await fetch(`${BASE}/control/${step.state}`, { method: 'POST' });
+    await fetch(`${BASE}/control/${step.state}`, { method: 'POST', headers: _NGROK_HDR });
     if (step.wait > 0) await new Promise(r => setTimeout(r, step.wait));
   }
 

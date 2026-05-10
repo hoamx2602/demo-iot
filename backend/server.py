@@ -407,14 +407,17 @@ async def _call_groq(user_msg: str) -> dict:
                     max_tokens=2048,
                     temperature=0.3,
                 ),
-                timeout=45.0,   # give up after 45s — never block forever
+                # 25s fits inside ngrok's 30s HTTP gateway timeout.
+                # Previous 45s caused ngrok to return 504 before Groq replied,
+                # making the dashboard fall back to mock data every time.
+                timeout=25.0,
             )
             text = response.choices[0].message.content
             print(f"[Groq] OK — model: {AI_MODEL}  tokens: {response.usage.total_tokens}")
             return json.loads(text)
 
         except asyncio.TimeoutError:
-            print("[Groq] Timeout after 45s — returning mock")
+            print("[Groq] Timeout after 25s — returning mock")
             return _mock_ai_response_generic(error="Groq API timeout")
         except Exception as e:
             print(f"[Groq API] Error: {e}")
@@ -566,6 +569,28 @@ async def analyze(req: AnalyzeRequest):
 async def websocket_endpoint(websocket: WebSocket):
     await manager.connect(websocket)
     print(f"[WS] Client connected. Total: {len(manager.active)}")
+
+    async def _ping_loop():
+        # Send a lightweight ping every 20s so ngrok doesn't treat the
+        # WebSocket as idle and close it. 20s is safely under ngrok's
+        # idle-connection cutoff without flooding slow connections.
+        while True:
+            await asyncio.sleep(20)
+            try:
+                lock = manager._locks.get(id(websocket))
+                if lock:
+                    async with lock:
+                        await asyncio.wait_for(
+                            websocket.send_json({"type": "ping"}), timeout=3.0
+                        )
+                else:
+                    await asyncio.wait_for(
+                        websocket.send_json({"type": "ping"}), timeout=3.0
+                    )
+            except Exception:
+                break
+
+    ping_task = asyncio.create_task(_ping_loop())
     try:
         while True:
             # Keep connection alive, receive control messages from dashboard
@@ -584,6 +609,8 @@ async def websocket_endpoint(websocket: WebSocket):
     except WebSocketDisconnect:
         manager.disconnect(websocket)
         print(f"[WS] Client disconnected. Total: {len(manager.active)}")
+    finally:
+        ping_task.cancel()
 
 
 @app.post("/simulate/inject")
