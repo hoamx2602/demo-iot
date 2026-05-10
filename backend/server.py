@@ -159,14 +159,27 @@ class ConnectionManager:
             self.active.remove(ws)
 
     async def broadcast(self, message: dict):
-        dead = []
-        for ws in self.active:
+        """Send to all clients concurrently with a per-client timeout.
+
+        Sequential sends let one slow/dead client block the whole event loop.
+        asyncio.gather runs all sends in parallel; wait_for evicts a client
+        that doesn't drain its buffer within 5 s (e.g. dead ngrok tunnel).
+        """
+        if not self.active:
+            return
+
+        async def _send(ws: WebSocket) -> WebSocket | None:
             try:
-                await ws.send_json(message)
+                await asyncio.wait_for(ws.send_json(message), timeout=5.0)
+                return None          # OK
             except Exception:
-                dead.append(ws)
-        for ws in dead:
-            self.disconnect(ws)
+                return ws            # dead — caller will remove
+
+        results = await asyncio.gather(*[_send(ws) for ws in list(self.active)],
+                                       return_exceptions=False)
+        for ws in results:
+            if ws is not None:
+                self.disconnect(ws)
 
 
 manager = ConnectionManager()
