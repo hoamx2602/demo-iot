@@ -234,37 +234,35 @@ sequenceDiagram
 flowchart TB
     subgraph L1["Layer 1 — Perception"]
         direction LR
-        S1["⚡ Vibration\n13 sensors"]
-        S2["🌡 Temperature\n12 sensors"]
-        S3["📊 Pressure\n14 sensors"]
-        S4["💧 Flow Rate\n13 sensors"]
+        S1["⚡ Vibration"]
+        S2["🌡 Temperature"]
+        S3["📊 Pressure"]
+        S4["💧 Flow Rate"]
     end
 
-    subgraph L2["Layer 2 — Network"]
+    subgraph L2["Layer 2 — Network & Transport"]
         direction LR
-        PUB["Publisher\nmqtt_replay.py"]
-        BROKER["MQTT Broker\nMosquitto :1883"]
-        PUB -->|"MQTT publish\npump/sensors"| BROKER
+        BROKER["Message Broker"]
     end
 
-    subgraph L3["Layer 3 — Processing"]
+    subgraph L3["Layer 3 — Processing & Intelligence"]
         direction LR
-        NR["Edge Processing\nNode-RED\nAnomaly Detection"]
-        API["Backend\nFastAPI\nWebSocket Hub"]
-        AI["AI Analytics\n& Decision\nGroq LLM"]
-        NR -->|"HTTP"| API
-        API -->|"REST"| AI
+        EDGE["Edge Processing\nAnomaly Detection"]
+        BACKEND["Data Aggregation\nReal-time Streaming"]
+        AI["AI Analytics\n& Decision"]
+        EDGE -->|"HTTP"| BACKEND
+        BACKEND -->|"REST"| AI
     end
 
     subgraph L4["Layer 4 — Application"]
         direction LR
-        DASH["Real-time Dashboard\nHealth · Trends · Alerts"]
-        EMAIL["Email Notification\nCRITICAL / WARNING"]
+        DASH["Monitoring Dashboard"]
+        NOTIF["Alert Notification"]
     end
 
-    L1 -->|"Sensor readings\n~167ms interval"| L2
+    L1 -->|"MQTT publish"| L2
     L2 -->|"MQTT subscribe"| L3
-    L3 -->|"WebSocket\nHTTP"| L4
+    L3 -->|"WebSocket"| L4
 
     style L1 fill:#1e3a2f,color:#a7f3d0,stroke:#34d399
     style L2 fill:#1a2e4a,color:#93c5fd,stroke:#60a5fa
