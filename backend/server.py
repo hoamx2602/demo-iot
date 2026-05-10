@@ -202,6 +202,12 @@ manager = ConnectionManager()
 # Cache latest sensor payload for /latest endpoint
 _last_sensor_payload: dict = {}
 
+# Rate-limited broadcast buffer.
+# /simulate/inject and _on_message write here; _broadcast_loop() sends at 2 Hz.
+# This decouples ingest rate (Node-RED / MQTT) from WS send rate so a fast
+# replay or slow ngrok connection can never build an unbounded send backlog.
+_pending_sensor_payload: dict | None = None
+
 # ─── MQTT Bridge ─────────────────────────────────────────────────────────────
 class MQTTBridge:
     """Subscribes to MQTT and pushes messages to WebSocket clients."""
@@ -261,14 +267,12 @@ class MQTTBridge:
             if nodered_active:
                 return
 
-            # Node-RED is offline or warming up — broadcast raw MQTT as fallback.
+            # Node-RED is offline or warming up — queue for broadcast loop.
             # Apply forced-state override so the control panel still works correctly.
+            global _pending_sensor_payload
             if _forced_state is not None:
                 payload.update(_FORCED_STATUS_MAP[_forced_state])
-            asyncio.run_coroutine_threadsafe(
-                manager.broadcast(payload),
-                self.loop
-            )
+            _pending_sensor_payload = payload   # overwrite; loop drains at 2 Hz
         except Exception as e:
             print(f"[MQTT Bridge] Message error: {e}")
 
@@ -302,12 +306,28 @@ class MQTTBridge:
 mqtt_bridge = MQTTBridge()
 
 
+# ─── Broadcast loop (2 Hz) ───────────────────────────────────────────────────
+# Drains _pending_sensor_payload at a fixed 2 Hz regardless of how fast
+# Node-RED / MQTT pushes data. Excess payloads are overwritten (last-value
+# wins), so WS clients always see the freshest reading without backlog.
+async def _broadcast_loop():
+    global _pending_sensor_payload
+    while True:
+        await asyncio.sleep(0.5)          # 2 Hz
+        payload = _pending_sensor_payload
+        if payload is not None:
+            _pending_sensor_payload = None
+            await manager.broadcast(payload)
+
+
 # ─── Lifespan ─────────────────────────────────────────────────────────────────
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     loop = asyncio.get_event_loop()
     mqtt_bridge.start(loop)
+    broadcast_task = asyncio.create_task(_broadcast_loop())
     yield
+    broadcast_task.cancel()
     mqtt_bridge.stop()
 
 
@@ -576,12 +596,15 @@ async def inject_sensor_data(payload: dict):
     Sensor gauge values (vibration, temperature, …) are left untouched
     so the live readings still animate normally.
     """
-    global _forced_state, _nodered_last_inject
+    global _forced_state, _nodered_last_inject, _pending_sensor_payload
     _nodered_last_inject = time.time()   # tell MQTT bridge Node-RED is alive
     payload["type"] = "sensor_update"
     if _forced_state is not None:
         payload.update(_FORCED_STATUS_MAP[_forced_state])
-    await manager.broadcast(payload)
+    # Write to rate-limit buffer — broadcast loop drains at 2 Hz.
+    # Direct broadcast here would let a fast replay build an unbounded
+    # send queue on slow connections (ngrok, mobile), causing gradual freeze.
+    _pending_sensor_payload = payload
     return {"status": "injected", "clients": len(manager.active)}
 
 
