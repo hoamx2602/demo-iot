@@ -176,8 +176,6 @@ class MQTTBridge:
         self.client.on_disconnect = self._on_disconnect
         self.client.on_message    = self._on_message
         self.loop: Optional[asyncio.AbstractEventLoop] = None
-        self._last_analysis_time = 0.0
-        self._analysis_cooldown  = 10.0
         self._stopping           = False
 
     def _on_connect(self, client, userdata, connect_flags, reason_code, properties):
@@ -212,66 +210,18 @@ class MQTTBridge:
         try:
             payload = json.loads(msg.payload.decode())
             payload["type"] = "sensor_update"
-            # Cache for /latest endpoint
+            # Cache for /latest endpoint — dashboard enriched data comes via Node-RED /simulate/inject
             global _last_sensor_payload
             _last_sensor_payload = payload
+            # Broadcast raw payload as fallback (first 5 readings before Node-RED buffer is ready,
+            # or when Node-RED is not running). Node-RED's /simulate/inject will override with
+            # enriched data (trends, overall_status) once its rolling buffer has ≥ 5 readings.
             asyncio.run_coroutine_threadsafe(
                 manager.broadcast(payload),
                 self.loop
             )
-
-            # Auto-trigger AI analysis on anomaly (with cooldown)
-            _status = payload.get("overall_status") or payload.get("machine_status", "NORMAL")
-            if payload.get("anomaly_detected") or _status in ("WARNING", "CRITICAL", "BROKEN"):
-                now = time.time()
-                if now - self._last_analysis_time > self._analysis_cooldown:
-                    self._last_analysis_time = now
-                    asyncio.run_coroutine_threadsafe(
-                        self._auto_analyze(payload),
-                        self.loop
-                    )
         except Exception as e:
             print(f"[MQTT Bridge] Message error: {e}")
-
-    async def _auto_analyze(self, payload: dict):
-        try:
-            machine_status = payload.get("machine_status", "NORMAL")
-            health_score   = payload.get("health_score", 50.0)
-            sensors        = payload.get("trends", payload.get("sensors", {}))
-
-            snapshot = SensorSnapshot(
-                timestamp=payload.get("ts", datetime.now(timezone.utc).isoformat()),
-                machine_status=machine_status,
-                health_score=health_score,
-                overall_status=payload.get("overall_status", machine_status),
-                sensors=sensors,
-            )
-            result = await call_ai(snapshot)
-            result["type"] = "ai_recommendation"
-            result["triggered_by"] = "auto"
-            await manager.broadcast(result)
-
-            # Auto-send email alert (server-side, no need for dashboard to be open)
-            alert_level = "CRITICAL" if machine_status in ("BROKEN", "CRITICAL") else "WARNING"
-            sensor_summary, sensor_statuses = _build_sensor_summary(sensors)
-            alert_req = AlertRequest(
-                level=alert_level,
-                sensor_summary=sensor_summary,
-                sensor_statuses=sensor_statuses,
-                health_score=health_score,
-                message=(
-                    "Pump failure detected — emergency maintenance required."
-                    if machine_status == "BROKEN"
-                    else "Sensor readings outside normal bounds."
-                ),
-                ai_risk_level=result.get("risk_level"),
-                estimated_hours_to_failure=result.get("estimated_hours_to_failure"),
-                estimated_savings=result.get("estimated_savings"),
-            )
-            await send_alert(alert_req)
-            print(f"[Auto-Analysis] Alert dispatched: {alert_level}")
-        except Exception as e:
-            print(f"[Auto-Analysis] Error: {e}")
 
     def start(self, loop: asyncio.AbstractEventLoop):
         self.loop     = loop
@@ -651,10 +601,10 @@ async def test_alert():
 
 # Sensor thresholds (must match SENSOR_GAUGE_CFG in the dashboard)
 _SENSOR_THRESHOLDS = {
-    "vibration":   {"warn": 4.5,  "crit": 6.5,  "unit": "mm/s", "invert": False},
+    "vibration":   {"warn": 4.5,  "crit": 7.0,  "unit": "mm/s", "invert": False},
     "temperature": {"warn": 85.0, "crit": 95.0,  "unit": "°C",   "invert": False},
-    "pressure":    {"warn": 8.0,  "crit": 10.0,  "unit": "bar",  "invert": False},
-    "flow_rate":   {"warn": 120.0,"crit": 100.0, "unit": "m³/h", "invert": True},
+    "pressure":    {"warn": 8.5,  "crit": 10.0,  "unit": "bar",  "invert": False},
+    "flow_rate":   {"warn": 110.0,"crit": 90.0,  "unit": "m³/h", "invert": True},
 }
 
 def _sensor_status(name: str, val: float) -> str:
