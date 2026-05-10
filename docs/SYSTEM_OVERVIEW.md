@@ -1,203 +1,203 @@
-# PumpGuard AI — System Components & Discussion Questions
+# PumpGuard AI — Mô tả hệ thống & Câu hỏi thảo luận
 
-> Reference material for workshop instructors and participants.
+> Tài liệu tham khảo cho giảng viên và học viên workshop.
 
 ---
 
-## Part A — Component Roles in the IoT Architecture
+## Phần A — Vai trò của từng thành phần trong kiến trúc IoT
 
 ### 1. Sensor Simulator (`mqtt_replay.py`)
-**Role: Perception Layer — Data Source**
+**Vai trò: Tầng Perception — Nguồn dữ liệu**
 
-In a real deployment, this layer would be physical sensors mounted on the pump (vibration probes, thermocouples, pressure transducers, flow meters). In this workshop, the simulator replays 220,000 rows of real industrial sensor data from a CSV file at 360× compression.
+Trong triển khai thực tế, tầng này là các sensor vật lý gắn trên máy bơm (đầu dò rung động, cặp nhiệt điện, cảm biến áp suất, đồng hồ đo lưu lượng). Trong workshop này, simulator phát lại 220.000 dòng dữ liệu sensor công nghiệp thực từ file CSV ở tốc độ nén 360×.
 
-**Why it matters in IoT:**
-The perception layer is where the physical world becomes digital. Every IoT system starts here — without reliable, high-frequency sensor data, no downstream intelligence is possible. The simulator faithfully reproduces the degradation pattern of a real pump failure, giving participants a realistic signal to work with.
+**Tại sao quan trọng trong IoT:**
+Tầng perception là nơi thế giới vật lý trở thành dữ liệu số. Mọi hệ thống IoT đều bắt đầu từ đây — không có dữ liệu sensor đáng tin cậy và tần suất cao, mọi xử lý phía sau đều vô nghĩa. Simulator tái hiện trung thực quá trình xuống cấp của một lần hỏng máy bơm thực tế.
 
-**Key design choices:**
-- Publishes every ~167 ms → 6 Hz sampling rate
-- Switches between `NORMAL` and `BROKEN` mode to simulate pump degradation
-- Uses the MQTT protocol to decouple itself from all consumers
+**Các lựa chọn thiết kế chính:**
+- Publish mỗi ~167 ms → tần suất lấy mẫu 6 Hz
+- Chuyển đổi giữa chế độ `NORMAL` và `BROKEN` để mô phỏng sự xuống cấp
+- Dùng MQTT để tách biệt hoàn toàn nguồn phát khỏi các bên tiêu thụ
 
 ---
 
 ### 2. Mosquitto MQTT Broker
-**Role: Network & Transport Layer — Message Bus**
+**Vai trò: Tầng Network & Transport — Message Bus**
 
-Mosquitto is the intermediary that receives published messages and routes them to all subscribers. No publisher knows who is consuming its data, and no subscriber knows where the data originates — they only share a **topic name** (`pump/sensors`).
+Mosquitto là trung gian nhận message từ publisher và định tuyến đến tất cả subscriber. Publisher không biết ai đang nhận dữ liệu của mình, và subscriber không biết dữ liệu đến từ đâu — họ chỉ cần biết **tên topic** (`pump/sensors`).
 
-**Why it matters in IoT:**
-MQTT was designed for constrained networks (low bandwidth, high latency, unreliable links). Its publish/subscribe model naturally supports **one-to-many** distribution — a single sensor publish reaches Node-RED, the FastAPI backend, and any other subscriber simultaneously, with no extra work.
+**Tại sao quan trọng trong IoT:**
+MQTT được thiết kế cho mạng có hạn chế (băng thông thấp, độ trễ cao, kết nối không ổn định). Mô hình publish/subscribe tự nhiên hỗ trợ phân phối **một-đến-nhiều** — một lần publish từ sensor đến đồng thời Node-RED, FastAPI backend và mọi subscriber khác mà không cần làm thêm gì.
 
-**Key properties in this system:**
-- QoS 1: at-least-once delivery guarantee — no data loss even on brief disconnects
-- Persistent connection: broker maintains the session, reducing reconnect overhead
-- Topic hierarchy: `pump/sensors` is extensible (e.g. `pump/alerts`, `pump/control`)
+**Tính năng chính trong hệ thống:**
+- QoS 1: đảm bảo giao hàng ít nhất một lần — không mất dữ liệu kể cả khi mất kết nối ngắn
+- Kết nối liên tục: broker duy trì session, giảm chi phí kết nối lại
+- Phân cấp topic: `pump/sensors` có thể mở rộng (ví dụ: `pump/alerts`, `pump/control`)
 
 ---
 
 ### 3. Node-RED
-**Role: Processing Layer — Edge Intelligence**
+**Vai trò: Tầng Processing — Edge Intelligence**
 
-Node-RED sits between the raw sensor stream and the backend. It subscribes to MQTT, accumulates a **rolling buffer** of 60 readings (~30 seconds of history), computes statistical trends, and decides whether to trigger an AI alert.
+Node-RED nằm giữa luồng sensor thô và backend. Nó subscribe MQTT, tích lũy **rolling buffer** 60 readings (~30 giây lịch sử), tính xu hướng thống kê, và quyết định có trigger cảnh báo AI hay không.
 
-**Why it matters in IoT:**
-In industrial IoT, "edge processing" means computing anomaly scores close to the data source — before sending anything to the cloud. This reduces bandwidth, latency, and cloud compute cost. Node-RED makes this logic **visual and auditable**: each processing step is a node you can inspect and debug individually.
+**Tại sao quan trọng trong IoT:**
+Trong IoT công nghiệp, "edge processing" có nghĩa là tính toán anomaly score gần nguồn dữ liệu — trước khi gửi bất cứ thứ gì lên cloud. Điều này giảm băng thông, độ trễ và chi phí cloud. Node-RED biến logic này thành **trực quan và có thể kiểm tra**: mỗi bước xử lý là một node bạn có thể quan sát và debug riêng lẻ.
 
-**What it computes:**
-| Metric | Purpose |
+**Những gì Node-RED tính toán:**
+| Chỉ số | Mục đích |
 |--------|---------|
-| Rolling average | Smooth out sensor noise |
-| Linear slope | Detect rising/falling trends |
-| Standard deviation | Measure signal stability |
-| `anomaly_score` (0–1) | Composite health indicator |
+| Rolling average | Làm mịn nhiễu sensor |
+| Linear slope | Phát hiện xu hướng tăng/giảm |
+| Standard deviation | Đo độ ổn định tín hiệu |
+| `anomaly_score` (0–1) | Chỉ số sức khỏe tổng hợp |
 
-**Decision rule:** If `anomaly_detected = true` (any sensor in WARNING or CRITICAL state based on trends), Node-RED throttles to 1 call per 60 s and posts an `AlertRequest` to the FastAPI `/alert` endpoint.
+**Quy tắc quyết định:** Nếu `anomaly_detected = true` (bất kỳ sensor nào ở trạng thái WARNING hoặc CRITICAL dựa trên xu hướng), Node-RED throttle xuống tối đa 1 lần mỗi 60 giây và gửi `AlertRequest` đến endpoint `/alert` của FastAPI.
 
 ---
 
 ### 4. FastAPI Backend (`server.py`)
-**Role: Processing Layer — Data Hub & API Gateway**
+**Vai trò: Tầng Processing — Data Hub & API Gateway**
 
-The backend is the central nervous system of the application. It:
-- Bridges MQTT to WebSocket (raw sensor relay)
-- Exposes REST endpoints for Node-RED (`/alert`, `/analyze`) and the dashboard (`/control`, `/simulate/inject`)
-- Manages all WebSocket client connections with per-connection write locks
-- Rate-limits broadcasts at 2 Hz to prevent backlog on slow connections
+Backend là hệ thần kinh trung ương của ứng dụng. Nó:
+- Cầu nối MQTT với WebSocket (relay sensor thô)
+- Expose REST endpoint cho Node-RED (`/alert`, `/analyze`) và dashboard (`/control`, `/simulate/inject`)
+- Quản lý tất cả kết nối WebSocket client với per-connection write lock
+- Rate-limit broadcast ở 2 Hz để tránh backlog trên kết nối chậm
 
-**Why it matters in IoT:**
-A backend in IoT acts as the **aggregation and normalization point** — it translates heterogeneous data (MQTT binary, REST JSON) into a single stream that the dashboard and AI service can consume. The WebSocket hub enables real-time push without polling.
+**Tại sao quan trọng trong IoT:**
+Backend trong IoT đóng vai trò **điểm tổng hợp và chuẩn hóa** — chuyển đổi dữ liệu không đồng nhất (MQTT binary, REST JSON) thành một luồng duy nhất mà dashboard và AI service có thể tiêu thụ. WebSocket hub cho phép push real-time mà không cần polling.
 
-**Key engineering details:**
-- `_broadcast_loop` at 2 Hz: decouples ingest rate from send rate — prevents freeze on ngrok/mobile
-- `_forced_state` lock: lets a presenter override the dashboard state during a live demo without Node-RED flickering it back
-- `_ai_semaphore(2)`: caps concurrent Groq calls to prevent quota exhaustion and fd leaks
-- Slow-request middleware: logs any endpoint taking > 1 s for event-loop diagnostics
+**Chi tiết kỹ thuật quan trọng:**
+- `_broadcast_loop` ở 2 Hz: tách biệt tốc độ ingest khỏi tốc độ gửi — tránh freeze trên ngrok/mobile
+- `_forced_state` lock: cho phép presenter override trạng thái dashboard trong demo mà không bị Node-RED ghi đè
+- `_ai_semaphore(2)`: giới hạn 2 Groq call đồng thời — tránh cạn kiệt quota và rò rỉ file descriptor
+- Middleware log request chậm: ghi log endpoint nào mất > 1 giây cho mục đích chẩn đoán
 
 ---
 
 ### 5. Groq LLM — `llama-3.3-70b-versatile`
-**Role: AI Analytics & Decision Layer**
+**Vai trò: Tầng AI Analytics & Decision**
 
-When Node-RED detects an anomaly, the backend sends a structured sensor snapshot to Groq's LLM API. The model returns a **business-interpretable JSON** response: risk level, root cause hypothesis, ranked maintenance actions, estimated hours to failure, and cost savings from early intervention.
+Khi Node-RED phát hiện anomaly, backend gửi một snapshot sensor có cấu trúc đến Groq API. Model trả về **JSON có thể hiểu được về mặt kinh doanh**: mức độ rủi ro, giả thuyết nguyên nhân gốc, danh sách hành động bảo trì được xếp hạng, ước tính giờ đến khi hỏng, và tiết kiệm chi phí nếu can thiệp sớm.
 
-**Why it matters in IoT:**
-Raw sensor thresholds tell you *that* something is wrong. AI tells you *why*, *how urgent*, and *what to do*. This moves the system from reactive alerting to **predictive maintenance** — the highest-value application in industrial IoT.
+**Tại sao quan trọng trong IoT:**
+Ngưỡng sensor thô cho bạn biết *rằng* có gì đó sai. AI cho bạn biết *tại sao*, *mức độ khẩn cấp*, và *cần làm gì*. Điều này chuyển hệ thống từ cảnh báo phản ứng sang **bảo trì dự đoán** — ứng dụng có giá trị cao nhất trong IoT công nghiệp.
 
-**Why Groq specifically:**
-- LPU (Language Processing Unit) inference: ~10× faster than GPU-based providers
-- Free tier: 30 RPM, 14,400 RPD — sufficient for multi-user workshops
-- `response_format: json_object`: guarantees valid JSON output, no parsing failures
-- `llama-3.3-70b-versatile`: strong technical reasoning, understands engineering context
+**Tại sao chọn Groq:**
+- LPU (Language Processing Unit): suy luận nhanh hơn ~10× so với provider dùng GPU
+- Free tier: 30 RPM, 14.400 RPD — đủ cho workshop nhiều người dùng
+- `response_format: json_object`: đảm bảo JSON hợp lệ, không bao giờ lỗi parse
+- `llama-3.3-70b-versatile`: lý luận kỹ thuật tốt, hiểu ngữ cảnh kỹ thuật
 
 ---
 
 ### 6. Real-time Dashboard (`index.html`)
-**Role: Application Layer — Human-Machine Interface**
+**Vai trò: Tầng Application — Human-Machine Interface**
 
-A single-page application that connects to the backend via WebSocket and renders live sensor data, health scores, AI recommendations, and the failure prediction timeline. No framework — pure HTML/CSS/JS for zero-dependency deployability.
+Single-page application kết nối với backend qua WebSocket và hiển thị dữ liệu sensor trực tiếp, health score, khuyến nghị AI và timeline dự đoán hỏng hóc. Không dùng framework — HTML/CSS/JS thuần túy để có thể deploy mà không cần phụ thuộc.
 
-**Why it matters in IoT:**
-The dashboard is the operator's window into the physical machine. In predictive maintenance, the value is in **time to act**: the AI recommendation panel, the countdown to estimated failure, and the maintenance cost savings are all designed to help an operator make a decision in seconds, not minutes.
+**Tại sao quan trọng trong IoT:**
+Dashboard là cửa sổ của operator nhìn vào máy vật lý. Trong bảo trì dự đoán, giá trị nằm ở **thời gian để hành động**: panel khuyến nghị AI, đếm ngược đến thời điểm hỏng dự kiến, và ước tính tiết kiệm chi phí bảo trì đều được thiết kế để operator đưa ra quyết định trong vài giây.
 
-**Key UI components:**
-| Component | Purpose |
+**Các thành phần UI chính:**
+| Thành phần | Mục đích |
 |-----------|---------|
-| Health Ring | At-a-glance machine health (0–100%) |
-| Sensor Gauges | Per-group real-time readings with threshold bands |
-| Failure Prediction Timeline | 4-milestone journey: Start → Anomaly → Now → Est. Failure |
-| AI Recommendation Panel | Risk level, actions, estimated savings |
-| Operator Controls | Presenter state override (Normal / Warning / Critical) |
+| Health Ring | Sức khỏe máy tổng thể (0–100%) nhìn nhanh |
+| Sensor Gauges | Readings real-time theo nhóm với dải ngưỡng |
+| Failure Prediction Timeline | Hành trình 4 mốc: Start → Anomaly → Now → Est. Failure |
+| AI Recommendation Panel | Mức rủi ro, hành động, tiết kiệm ước tính |
+| Operator Controls | Override trạng thái của presenter (Normal / Warning / Critical) |
 
 ---
 
 ### 7. Resend Email Alert
-**Role: Application Layer — Out-of-Band Notification**
+**Vai trò: Tầng Application — Out-of-band Notification**
 
-When the `/alert` endpoint is called, after the AI analysis completes, the backend sends an HTML email via the Resend API. The email includes the sensor snapshot, AI risk level, recommended actions, and a link to the dashboard.
+Khi endpoint `/alert` được gọi, sau khi phân tích AI hoàn thành, backend gửi email HTML qua Resend API. Email bao gồm snapshot sensor, mức rủi ro AI, hành động được khuyến nghị và link đến dashboard.
 
-**Why it matters in IoT:**
-A dashboard only helps if someone is watching it. Email (and in production: SMS, push notification, SCADA integration) ensures that an anomaly triggers a response even when no operator is logged in. This closes the loop between **detection** and **human action**.
-
----
-
-## Part B — Technical & Discussion Questions
-
-### 🔧 IoT Architecture & Protocol
-
-1. **Why does this system use MQTT instead of HTTP REST for sensor data?**
-   *(Hint: think about connection model, overhead, and fan-out)*
-
-2. **What would happen to the system if the MQTT broker went down for 10 seconds? Which components would be affected and how?**
-
-3. **QoS 1 guarantees "at-least-once" delivery. In what scenario could this cause a problem for this system? How would you handle duplicate messages?**
-
-4. **The simulator publishes at 6 Hz (167 ms interval). If a real pump has 52 sensors each sampling at 100 Hz, what changes would be required in the architecture?**
-
-5. **In the current system, both the MQTT bridge and Node-RED subscribe to `pump/sensors`. What are the trade-offs of this design vs. having only one subscriber that fans out internally?**
-
-6. **The system uses a rolling buffer of 60 readings. How would you decide the right buffer size for a different IoT use case (e.g. a temperature sensor in a cold storage room)?**
+**Tại sao quan trọng trong IoT:**
+Dashboard chỉ hữu ích khi có người đang nhìn vào nó. Email (và trong production: SMS, push notification, tích hợp SCADA) đảm bảo anomaly kích hoạt phản hồi ngay cả khi không có operator nào đang đăng nhập. Điều này hoàn thiện vòng lặp giữa **phát hiện** và **hành động của con người**.
 
 ---
 
-### ⚙️ System Design & Engineering
+## Phần B — Câu hỏi Kỹ thuật & Thảo luận
 
-7. **The broadcast loop runs at 2 Hz regardless of how fast Node-RED sends data. Why is this rate-limiting important? What could go wrong without it on a slow connection like ngrok?**
+### 🔧 Kiến trúc IoT & Giao thức
 
-8. **The `/control/{state}` endpoint locks a `_forced_state` that Node-RED cannot override. Why is this lock necessary for a live demo? What is the risk if you remove it?**
+1. **Tại sao hệ thống dùng MQTT thay vì HTTP REST để truyền dữ liệu sensor?**
+   *(Gợi ý: nghĩ về mô hình kết nối, overhead header, và khả năng fan-out)*
 
-9. **The Groq client is created once at startup as a singleton (`_groq_client`). What problem does this solve compared to creating a new client on every request?**
+2. **Điều gì xảy ra với hệ thống nếu MQTT broker bị down trong 10 giây? Những thành phần nào bị ảnh hưởng và theo cách nào?**
 
-10. **The system uses `asyncio.Semaphore(2)` to cap concurrent AI calls. If you had 30 workshop participants all triggering an anomaly at the same time, what would happen? How would you scale this?**
+3. **QoS 1 đảm bảo giao hàng "ít nhất một lần". Trong tình huống nào điều này có thể gây ra vấn đề cho hệ thống này? Bạn xử lý message trùng lặp như thế nào?**
 
-11. **Why is the Resend email call wrapped in `asyncio.to_thread()`? What would happen to the WebSocket broadcasts if it ran synchronously in the event loop?**
+4. **Simulator publish ở 6 Hz (167 ms/lần). Nếu một máy bơm thực có 52 sensor mỗi sensor lấy mẫu ở 100 Hz, kiến trúc cần thay đổi gì?**
 
-12. **The `_nodered_last_inject` timestamp suppresses MQTT bridge broadcasts for 5 seconds after Node-RED posts. What is the purpose of this, and what edge case could cause the dashboard to show no data?**
+5. **Hiện tại cả MQTT bridge và Node-RED đều subscribe vào `pump/sensors`. Đánh đổi của thiết kế này là gì so với chỉ có một subscriber duy nhất rồi fan-out nội bộ?**
+
+6. **Hệ thống dùng rolling buffer 60 readings. Làm thế nào bạn quyết định kích thước buffer phù hợp cho một use case IoT khác (ví dụ: sensor nhiệt độ trong kho lạnh)?**
+
+---
+
+### ⚙️ Thiết kế hệ thống & Kỹ thuật
+
+7. **Broadcast loop chạy ở 2 Hz bất kể Node-RED gửi data nhanh thế nào. Tại sao rate-limiting này quan trọng? Điều gì có thể xảy ra nếu không có nó trên kết nối chậm như ngrok?**
+
+8. **Endpoint `/control/{state}` khóa `_forced_state` mà Node-RED không thể ghi đè. Tại sao lock này cần thiết cho một demo trực tiếp? Rủi ro gì nếu bỏ nó?**
+
+9. **Groq client được tạo một lần lúc startup dưới dạng singleton (`_groq_client`). Điều này giải quyết vấn đề gì so với tạo client mới cho mỗi request?**
+
+10. **Hệ thống dùng `asyncio.Semaphore(2)` để giới hạn AI call đồng thời. Nếu 30 học viên cùng trigger anomaly một lúc, điều gì xảy ra? Bạn scale hệ thống này như thế nào?**
+
+11. **Tại sao Resend email call được wrap trong `asyncio.to_thread()`? Điều gì xảy ra với WebSocket broadcast nếu nó chạy đồng bộ trong event loop?**
+
+12. **Timestamp `_nodered_last_inject` ngăn MQTT bridge broadcast trong 5 giây sau khi Node-RED post. Mục đích là gì, và edge case nào có thể khiến dashboard không hiển thị dữ liệu?**
 
 ---
 
 ### 🤖 AI & Machine Learning
 
-13. **The LLM receives a structured JSON sensor snapshot, not raw time-series data. What information is lost in this abstraction? How does the rolling buffer in Node-RED partially compensate?**
+13. **LLM nhận JSON snapshot sensor có cấu trúc, không phải raw time-series. Thông tin gì bị mất trong abstraction này? Rolling buffer trong Node-RED bù đắp điều này như thế nào?**
 
-14. **The system prompt instructs the LLM to return a JSON with `risk_level`, `estimated_hours_to_failure`, and `recommended_actions`. What are the risks of trusting an LLM's numerical estimates (like hours to failure) in a safety-critical context?**
+14. **System prompt hướng dẫn LLM trả về JSON với `risk_level`, `estimated_hours_to_failure`, và `recommended_actions`. Rủi ro gì khi tin vào ước tính số của LLM (như số giờ đến khi hỏng) trong bối cảnh an toàn quan trọng?**
 
-15. **The AI response includes `confidence` (0–1). How should an operator interpret a `HIGH` risk level with `confidence: 0.45`? What UI change would communicate this uncertainty better?**
+15. **AI response bao gồm `confidence` (0–1). Operator nên hiểu thế nào khi thấy risk level `HIGH` với `confidence: 0.45`? Thay đổi UI nào sẽ truyền đạt sự không chắc chắn này tốt hơn?**
 
-16. **The system throttles AI calls to 1 per 60 seconds. During a prolonged degradation, the sensor readings may change significantly. How would you design a smarter throttling strategy that triggers AI re-analysis when the situation changes meaningfully?**
+16. **Hệ thống throttle AI call xuống 1 lần mỗi 60 giây. Trong một sự cố kéo dài, readings sensor có thể thay đổi đáng kể. Bạn thiết kế chiến lược throttle thông minh hơn như thế nào để kích hoạt re-analysis khi tình huống thực sự thay đổi?**
 
-17. **Node-RED computes `anomaly_score` using handcrafted thresholds and linear slope. What are the limitations of this rule-based approach vs. a trained ML model (e.g. Isolation Forest, LSTM)? What would you need to train a model for this pump?**
+17. **Node-RED tính `anomaly_score` dùng ngưỡng thủ công và linear slope. Giới hạn của approach dựa trên quy tắc này là gì so với trained ML model (ví dụ: Isolation Forest, LSTM)? Bạn cần gì để train model cho máy bơm này?**
 
-18. **The LLM is given the current sensor snapshot but no historical context beyond what Node-RED summarizes. How would access to the full 60-reading trend history change the quality of the AI's recommendations?**
-
----
-
-### 📊 IoT Business & Use Case
-
-19. **The AI estimates "cost savings from planned maintenance vs. emergency repair." What data would you need to make this estimate accurate for a real factory? What are the hidden costs an LLM might miss?**
-
-20. **This system generates one alert email per anomaly (with a 60 s cooldown). In a real factory with 200 pumps, how would you manage alert fatigue? What filtering or prioritization mechanisms would you add?**
-
-21. **The current system has no data persistence — sensor readings and AI analyses are lost when the server restarts. What would you add to support trend analysis over weeks/months? What database would you choose and why?**
-
-22. **MQTT topics are flat strings (`pump/sensors`). If you extended this to a factory with 50 machines, how would you design the topic hierarchy? What Node-RED changes would be required?**
-
-23. **The system runs on a single Google Colab instance. Identify 3 single points of failure and propose how you would address each in a production deployment.**
-
-24. **A customer asks: "Can I use this system without internet?" (air-gapped factory). Which components work offline? Which require internet? What changes would enable fully offline operation?**
+18. **LLM được cho biết snapshot sensor hiện tại nhưng không có ngữ cảnh lịch sử ngoài những gì Node-RED tóm tắt. Việc truy cập toàn bộ lịch sử 60 readings sẽ thay đổi chất lượng khuyến nghị AI như thế nào?**
 
 ---
 
-### 🔬 Advanced / Open-ended
+### 📊 Kinh doanh & Use Case IoT
 
-25. **The dashboard suppresses WebSocket sensor updates while the local simulator is running (`if (!_simInterval)`). Why? What visual artifact would appear without this guard?**
+19. **AI ước tính "tiết kiệm chi phí từ bảo trì có kế hoạch vs sửa chữa khẩn cấp". Bạn cần dữ liệu gì để ước tính này chính xác với một nhà máy thực? Chi phí ẩn nào LLM có thể bỏ sót?**
 
-26. **Design a "digital twin" extension for this system: a simulated copy of the pump that runs in parallel and predicts what will happen in the next hour based on current trends. What components would you add?**
+20. **Hệ thống hiện tại gửi một email cảnh báo mỗi anomaly (với cooldown 60 giây). Trong nhà máy thực với 200 máy bơm, bạn quản lý "alert fatigue" như thế nào? Thêm cơ chế lọc hoặc ưu tiên nào?**
 
-27. **The current anomaly detection is threshold-based (vibration > 7.0 mm/s = CRITICAL). A pump running at 50% load has different normal ranges than one at 100% load. How would you make the thresholds context-aware?**
+21. **Hệ thống hiện không lưu trữ dữ liệu — sensor readings và phân tích AI bị mất khi server restart. Bạn thêm gì để hỗ trợ phân tích xu hướng theo tuần/tháng? Chọn database nào và tại sao?**
 
-28. **If you replaced Groq/llama-3.3-70b with a small on-device model (e.g. Phi-3 mini running on a Raspberry Pi), what trade-offs would you accept? What IoT scenarios make this trade-off worthwhile?**
+22. **MQTT topic là chuỗi phẳng (`pump/sensors`). Nếu mở rộng cho nhà máy có 50 máy, bạn thiết kế phân cấp topic như thế nào? Node-RED cần thay đổi gì?**
+
+23. **Hệ thống chạy trên một instance Google Colab duy nhất. Hãy xác định 3 single point of failure và đề xuất cách giải quyết từng cái trong deployment production.**
+
+24. **Khách hàng hỏi: "Tôi có thể dùng hệ thống này không có internet không?" (nhà máy air-gapped). Những thành phần nào hoạt động offline? Thành phần nào cần internet? Cần thay đổi gì để vận hành hoàn toàn offline?**
 
 ---
 
-*Questions marked with a 🔧 are suitable for all participants. Questions marked ⚙️ are for software/systems track. Questions marked 🤖 are for AI/ML track. Questions marked 📊 are for business/product track.*
+### 🔬 Nâng cao / Mở rộng
+
+25. **Dashboard bỏ qua WebSocket sensor update khi local simulator đang chạy (`if (!_simInterval)`). Tại sao? Visual artifact nào xuất hiện nếu không có guard này?**
+
+26. **Thiết kế extension "digital twin" cho hệ thống này: một bản sao mô phỏng của máy bơm chạy song song và dự đoán điều gì sẽ xảy ra trong một giờ tới dựa trên xu hướng hiện tại. Bạn thêm những thành phần nào?**
+
+27. **Phát hiện anomaly hiện tại dựa trên ngưỡng cố định (vibration > 7.0 mm/s = CRITICAL). Máy bơm chạy ở 50% tải có dải giá trị bình thường khác với máy chạy ở 100% tải. Bạn làm cho ngưỡng trở nên context-aware như thế nào?**
+
+28. **Nếu thay Groq/llama-3.3-70b bằng model nhỏ on-device (ví dụ: Phi-3 mini chạy trên Raspberry Pi), bạn chấp nhận đánh đổi gì? Scenarios IoT nào làm cho đánh đổi này xứng đáng?**
+
+---
+
+*Câu hỏi 🔧 phù hợp cho tất cả học viên. Câu hỏi ⚙️ dành cho track phần mềm/hệ thống. Câu hỏi 🤖 dành cho track AI/ML. Câu hỏi 📊 dành cho track kinh doanh/sản phẩm.*
