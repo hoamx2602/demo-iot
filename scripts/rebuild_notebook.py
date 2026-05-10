@@ -287,15 +287,32 @@ else:
 cells.append(md("### 6.2 Create public URL (ngrok)"))
 
 cells.append(code("""
-import os, subprocess, time, requests
+import os, subprocess, time, requests, shutil
 
 NGROK_TOKEN = ''   # https://dashboard.ngrok.com/get-started/your-authtoken
 
 PUBLIC_URL  = None
 NODERED_URL = None
 
+# ── Install ngrok if not present ──────────────────────────────────────────
+if not shutil.which('ngrok'):
+    print("Installing ngrok...")
+    subprocess.run(
+        'curl -sSL https://ngrok-agent.s3.amazonaws.com/ngrok.asc | '
+        'tee /etc/apt/trusted.gpg.d/ngrok.asc > /dev/null && '
+        'echo "deb https://ngrok-agent.s3.amazonaws.com buster main" | '
+        'tee /etc/apt/sources.list.d/ngrok.list > /dev/null && '
+        'apt-get update -qq && apt-get install -y -q ngrok',
+        shell=True, capture_output=True
+    )
+    print("ngrok installed." if shutil.which('ngrok') else "ngrok install failed — check network.")
+else:
+    print("ngrok already installed.")
+
+# ── Start tunnels ──────────────────────────────────────────────────────────
 subprocess.run(['pkill', '-f', 'ngrok'], capture_output=True)
-subprocess.run(['ngrok', 'authtoken', NGROK_TOKEN], capture_output=True)
+time.sleep(0.5)
+subprocess.run(['ngrok', 'config', 'add-authtoken', NGROK_TOKEN], capture_output=True)
 
 ngrok_proc = subprocess.Popen(
     ['ngrok', 'start', '--all', '--config', '/dev/stdin'],
@@ -325,7 +342,6 @@ try:
             NODERED_URL = url
     print(f"Dashboard : {PUBLIC_URL}/dashboard/")
     print(f"Node-RED  : {NODERED_URL}")
-    # Update .env with public URL
     env_path = '/content/pump-iot-demo/backend/.env'
     with open(env_path) as f: env = f.read()
     if 'PUBLIC_URL' not in env:
@@ -333,6 +349,7 @@ try:
 except Exception as e:
     print(f"ngrok error: {e}")
 """))
+
 
 # ── Part 7: Simulator ──────────────────────────────────────────────────────
 cells.append(md("""---
