@@ -16,15 +16,15 @@ cells = []
 
 # ── Title ──────────────────────────────────────────────────────────────────
 cells.append(md("""
-# PumpGuard AI — Workshop IoT Predictive Maintenance
+# PumpGuard AI — IoT Predictive Maintenance Workshop
 
-Mục tiêu: Xây dựng hệ thống giám sát máy bơm công nghiệp theo thời gian thực, phát hiện bất thường và tư vấn bảo trì bằng AI.
+Goal: Build a real-time industrial pump monitoring system that detects anomalies and recommends maintenance actions using AI.
 
 **Stack:** MQTT · Node-RED · FastAPI · Groq LLM · WebSocket Dashboard
 """))
 
 # ── Part 1: Setup ──────────────────────────────────────────────────────────
-cells.append(md("---\n## Part 1 — Kiểm tra môi trường & Tạo thư mục"))
+cells.append(md("---\n## Part 1 — Environment Check & Directory Setup"))
 
 cells.append(code("""
 import sys, os, platform
@@ -42,12 +42,12 @@ print("Directories created:", PROJ)
 
 # ── Part 2: Install ─────────────────────────────────────────────────────────
 cells.append(md("""---
-## Part 2 — Cài đặt dependencies
+## Part 2 — Install Dependencies
 
 ### 2.1 Upload `requirements.txt` → `backend/`
 
-File liệt kê tất cả Python package cần thiết cho backend.
-Sau khi upload, chạy cell dưới để cài.
+Lists all Python packages required by the backend.
+After uploading, run the cell below to install them.
 """))
 
 cells.append(code("""
@@ -64,10 +64,10 @@ else:
 """))
 
 cells.append(md("""
-### 2.2 Cài Mosquitto & Node-RED
+### 2.2 Install Mosquitto & Node-RED
 
-- **Mosquitto**: MQTT broker — nhận và phân phối message giữa các thành phần
-- **Node-RED**: công cụ kéo-thả xử lý luồng dữ liệu tại edge
+- **Mosquitto**: MQTT broker — receives and routes messages between components
+- **Node-RED**: flow-based programming tool for edge data processing
 """))
 
 cells.append(code("""
@@ -82,38 +82,38 @@ print("Mosquitto and Node-RED installed.")
 cells.append(md("""---
 ## Part 3 — Backend: `server.py`
 
-### Upload 2 file sau vào `backend/`:
-1. `server.py` — FastAPI backend chính
-2. `email_alert.html` — template email cảnh báo
+### Upload these 2 files into `backend/`:
+1. `server.py` — main FastAPI backend
+2. `email_alert.html` — HTML template for alert emails
 
 ---
 
-### `server.py` làm gì?
+### What does `server.py` do?
 
-**`MQTTBridge`** — subscribe topic `pump/sensors`, nhận payload từ simulator, lưu vào cache và forward qua WebSocket.
+**`MQTTBridge`** — subscribes to `pump/sensors`, receives payloads from the simulator, caches the latest reading, and forwards it over WebSocket.
 
-**`ConnectionManager`** — quản lý tất cả WebSocket client (dashboard). Có per-connection lock để tránh corrupt frame khi nhiều client cùng nhận data.
+**`ConnectionManager`** — manages all connected WebSocket clients (dashboards). Uses a per-connection write lock to prevent frame corruption when multiple clients receive data simultaneously.
 
-**`_broadcast_loop`** — vòng lặp 2 Hz (0.5s/lần) đẩy sensor data mới nhất ra tất cả client. Tách biệt tốc độ nhận (MQTT) khỏi tốc độ gửi (WebSocket) để tránh backlog.
+**`_broadcast_loop`** — runs at 2 Hz (every 0.5s), pushing the latest sensor data to all clients. Decouples the ingest rate (MQTT) from the send rate (WebSocket) to prevent backlogs.
 
-**`POST /alert`** — Node-RED gọi endpoint này khi phát hiện anomaly. Backend gọi Groq AI phân tích rồi gửi email.
+**`POST /alert`** — called by Node-RED when an anomaly is detected. The backend calls Groq AI for analysis and sends an alert email.
 
-**`POST /analyze`** — Nhận snapshot sensor, trả về JSON phân tích từ Groq (risk_level, recommended_actions, estimated_hours_to_failure).
+**`POST /analyze`** — accepts a sensor snapshot and returns a structured JSON analysis from Groq: `risk_level`, `recommended_actions`, `estimated_hours_to_failure`.
 
-**`_ai_semaphore`** — giới hạn 2 Groq call đồng thời để không vượt quota free tier.
+**`_ai_semaphore`** — limits concurrent Groq calls to 2 to stay within the free-tier rate limit.
 """))
 
 cells.append(md("""
-### 3.2 Tạo file `.env`
+### 3.2 Create `.env` file
 
-Điền API key vào ô dưới rồi chạy — file `.env` sẽ được tạo tự động.
+Fill in your API keys below and run the cell — the `.env` file will be created automatically.
 """))
 
 cells.append(code("""
-GROQ_API_KEY  = ''   # https://console.groq.com → API Keys
-RESEND_API_KEY = ''  # https://resend.com → API Keys (để trống = bỏ qua email)
-ALERT_FROM    = ''   # email gửi đi (phải verify domain trên Resend)
-ALERT_TO      = ''   # email nhận cảnh báo
+GROQ_API_KEY   = ''   # https://console.groq.com → API Keys
+RESEND_API_KEY = ''   # https://resend.com → API Keys (leave empty to skip emails)
+ALERT_FROM     = ''   # sender email address (must be verified on Resend)
+ALERT_TO       = ''   # recipient email address for alerts
 
 env_content = f\"\"\"MQTT_HOST=localhost
 MQTT_PORT=1883
@@ -132,13 +132,13 @@ print(".env created.")
 cells.append(md("""---
 ## Part 4 — MQTT Broker (Mosquitto)
 
-MQTT hoạt động theo mô hình pub/sub:
-- `mqtt_replay.py` **publish** data lên topic `pump/sensors`
-- `server.py` và Node-RED cùng **subscribe** topic đó → nhận data song song
+MQTT follows a pub/sub model:
+- `mqtt_replay.py` **publishes** data to topic `pump/sensors`
+- Both `server.py` and Node-RED **subscribe** to that topic → receive data in parallel
 
-Mosquitto là broker trung gian — nhận từ publisher và phân phối đến tất cả subscriber.
+Mosquitto is the broker in between — it receives from publishers and delivers to all subscribers.
 
-### 4.1 Khởi động Mosquitto
+### 4.1 Start Mosquitto
 """))
 
 cells.append(code("""
@@ -158,7 +158,7 @@ time.sleep(1)
 print("Mosquitto running." if mosq_proc.poll() is None else "Failed to start Mosquitto.")
 """))
 
-cells.append(md("### 4.2 Kiểm tra kết nối MQTT"))
+cells.append(md("### 4.2 Verify MQTT connection"))
 
 cells.append(code("""
 import paho.mqtt.client as mqtt, threading, time
@@ -184,20 +184,20 @@ cells.append(md("""---
 
 ---
 
-### `flows.json` làm gì?
+### What does `flows.json` do?
 
-Node-RED xử lý dữ liệu sensor theo từng bước (node):
+Node-RED processes sensor data step by step through connected nodes:
 
-1. **MQTT In** — subscribe `pump/sensors`, nhận payload JSON từ simulator
-2. **Parse & Validate** — parse JSON, kiểm tra đủ field cần thiết
-3. **Rolling Buffer** — tích lũy 60 readings gần nhất (~30s)
-4. **Compute Trends** — tính slope (xu hướng tăng/giảm), std_dev, anomaly_score cho từng sensor group
-5. **Throttle (1/60s)** — giới hạn tối đa 1 lần gọi AI mỗi 60 giây
-6. **POST /alert** — gửi snapshot đến FastAPI khi phát hiện anomaly
+1. **MQTT In** — subscribes to `pump/sensors`, receives JSON payloads from the simulator
+2. **Parse & Validate** — parses the JSON and verifies all required fields are present
+3. **Rolling Buffer** — accumulates the last 60 readings (~30 seconds of history)
+4. **Compute Trends** — calculates slope, std_dev, and anomaly_score per sensor group
+5. **Throttle (1/60s)** — limits AI calls to at most once every 60 seconds
+6. **POST /alert** — sends a sensor snapshot to FastAPI when an anomaly is detected
 
-→ Node-RED đóng vai trò "edge intelligence": xử lý và lọc data trước khi gọi AI, không phải gọi AI với từng reading thô.
+→ Node-RED acts as the "edge intelligence" layer: it processes and filters data before invoking AI, rather than calling AI on every raw reading.
 
-### 5.2 Khởi động Node-RED
+### 5.2 Start Node-RED
 """))
 
 cells.append(code("""
@@ -247,23 +247,23 @@ print("Flow deployed." if r.status_code in (200, 204) else f"Deploy failed: {r.s
 cells.append(md("""---
 ## Part 6 — Dashboard & FastAPI Server
 
-### Upload 2 file sau vào `dashboard/`:
-1. `index.html` — dashboard chính (biểu đồ sensor, AI panel, failure timeline)
-2. `control.html` — panel điều khiển demo (chuyển Normal/Warning/Critical)
+### Upload these 2 files into `dashboard/`:
+1. `index.html` — main dashboard (sensor charts, AI panel, failure timeline)
+2. `control.html` — demo control panel (switch between Normal / Warning / Critical)
 
 ---
 
-### `index.html` làm gì?
+### What does `index.html` do?
 
-Kết nối WebSocket đến `ws://…/ws` → nhận `sensor_update` liên tục từ backend.
+Opens a WebSocket connection to `ws://…/ws` and receives continuous `sensor_update` messages from the backend.
 
-Hiển thị:
-- **Health Ring** — sức khỏe máy tổng thể (0–100%)
-- **Sensor Gauges** — giá trị thực tế của 4 sensor group với vùng ngưỡng
-- **Failure Timeline** — hành trình 4 mốc: Start → Anomaly Detected → Now → Estimated Failure
-- **AI Panel** — risk level, recommended actions, estimated savings từ Groq
+Displays:
+- **Health Ring** — overall machine health (0–100%)
+- **Sensor Gauges** — live readings for 4 sensor groups with threshold zones
+- **Failure Timeline** — 4-milestone journey: Start → Anomaly Detected → Now → Estimated Failure
+- **AI Panel** — risk level, recommended actions, and estimated savings from Groq
 
-### 6.1 Khởi động FastAPI
+### 6.1 Start FastAPI
 """))
 
 cells.append(code("""
@@ -284,7 +284,7 @@ else:
     print("FastAPI may still be starting — check logs if dashboard is blank.")
 """))
 
-cells.append(md("### 6.2 Tạo public URL (ngrok)"))
+cells.append(md("### 6.2 Create public URL (ngrok)"))
 
 cells.append(code("""
 import os, subprocess, time, requests
@@ -338,30 +338,30 @@ except Exception as e:
 cells.append(md("""---
 ## Part 7 — Sensor Simulator
 
-### Upload 3 file:
+### Upload these 3 files:
 1. `sensor.csv` → `data/`
 2. `analyze_sensors.py` → `scripts/`
 3. `mqtt_replay.py` → `scripts/`
 
 ---
 
-### `analyze_sensors.py` làm gì?
+### What does `analyze_sensors.py` do?
 
-Đọc `sensor.csv` (220k rows, 52 sensor columns) và:
-1. Tính **divergence score** — đo mức độ mỗi sensor group thay đổi khi máy chuyển NORMAL → BROKEN
-2. Tính **scale + offset** — ánh xạ raw value (0–1) sang đơn vị thực tế (mm/s, °C, bar, m³/h)
-3. Xuất `sensor_groups.json` — config cho `mqtt_replay.py`
+Reads `sensor.csv` (220k rows, 52 sensor columns) and:
+1. Computes **divergence score** — measures how much each sensor group shifts from NORMAL to BROKEN
+2. Computes **scale + offset** — maps raw values (0–1) to real-world units (mm/s, °C, bar, m³/h)
+3. Outputs `sensor_groups.json` — the config file used by `mqtt_replay.py`
 
-Chạy **1 lần** khi setup.
+Run **once** during setup.
 
-### `mqtt_replay.py` làm gì?
+### What does `mqtt_replay.py` do?
 
-Đọc CSV row-by-row, áp dụng scale/offset từ config, publish payload JSON lên MQTT topic `pump/sensors`.
-- Default: 1 row/giây (`--compression 60`)
-- Có thể jump thẳng đến row bị hỏng: `--start-at-anomaly`
-- Nhận lệnh qua topic `pump/control`: PAUSE / RESUME / STOP / JUMP:<row>
+Reads the CSV row by row, applies scale/offset from config, and publishes a JSON payload to MQTT topic `pump/sensors`.
+- Default: 1 row/second (`--compression 60`)
+- Can jump directly to the fault row: `--start-at-anomaly`
+- Accepts commands via topic `pump/control`: PAUSE / RESUME / STOP / JUMP:<row>
 
-### 7.1 Phân tích dữ liệu
+### 7.1 Analyse the dataset
 """))
 
 cells.append(code("""
@@ -377,7 +377,7 @@ result = subprocess.run(
 print(result.stdout[-800:] if result.returncode == 0 else result.stderr[-500:])
 """))
 
-cells.append(md("### 7.2 Khởi động simulator (NORMAL mode)"))
+cells.append(md("### 7.2 Start simulator (NORMAL mode)"))
 
 cells.append(code("""
 import subprocess, sys, time
@@ -393,11 +393,11 @@ sim_proc = subprocess.Popen(
 time.sleep(2)
 print("Simulator running — NORMAL state.")
 if 'PUBLIC_URL' in dir() and PUBLIC_URL:
-    print(f"Dashboard: {PUBLIC_URL}/dashboard/")
+    print(f"Dashboard : {PUBLIC_URL}/dashboard/")
 """))
 
 # ── Part 8: Pipeline Check ─────────────────────────────────────────────────
-cells.append(md("---\n## Part 8 — Kiểm tra toàn bộ pipeline"))
+cells.append(md("---\n## Part 8 — Full Pipeline Check"))
 
 cells.append(code("""
 import requests
@@ -423,8 +423,8 @@ if 'PUBLIC_URL' in dir() and PUBLIC_URL:
 cells.append(md("""---
 ## Part 9 — AI Analysis & Email Alerts
 
-Node-RED tự động gọi `/alert` khi phát hiện anomaly.
-Cell dưới cho phép test thủ công.
+Node-RED automatically calls `/alert` when it detects an anomaly.
+The cells below allow you to test both endpoints manually.
 """))
 
 cells.append(code("""
@@ -477,11 +477,11 @@ else:
 
 # ── Part 10: Demo ──────────────────────────────────────────────────────────
 cells.append(md("""---
-## Part 10 — Demo: Mô phỏng sự cố
+## Part 10 — Demo: Simulate a Fault
 
-### Scenario A — Chuyển sang CRITICAL (máy hỏng)
+### Scenario A — Switch to CRITICAL (machine failure)
 
-Restart simulator từ row bị hỏng. Node-RED sẽ phát hiện anomaly trong ~60s và gọi AI.
+Restarts the simulator from the fault row. Node-RED will detect the anomaly within ~60s and trigger an AI analysis.
 """))
 
 cells.append(code("""
@@ -501,7 +501,7 @@ sim_proc = subprocess.Popen(
 print("Simulator → CRITICAL mode. Dashboard updates in ~3s.")
 """))
 
-cells.append(md("### Scenario B — Quay về NORMAL"))
+cells.append(md("### Scenario B — Reset to NORMAL"))
 
 cells.append(code("""
 import subprocess, sys
@@ -522,14 +522,14 @@ print("Simulator → NORMAL mode.")
 
 # ── Part 11: Monitor ───────────────────────────────────────────────────────
 cells.append(md("""---
-## Part 11 — Trạng thái hệ thống
+## Part 11 — System Status
 
-| Symptom | Cause | Fix |
-|---------|-------|-----|
-| Dashboard blank | FastAPI chưa chạy | Re-run Part 6.1 |
-| No data on chart | Simulator chưa chạy | Re-run Part 7.2 |
-| AI không respond | GROQ_API_KEY sai | Kiểm tra .env |
-| Node-RED không deploy | Chưa upload flows.json | Re-run Part 5 |
+| Symptom | Likely Cause | Fix |
+|---------|-------------|-----|
+| Dashboard blank | FastAPI not running | Re-run Part 6.1 |
+| No data on chart | Simulator not running | Re-run Part 7.2 |
+| AI not responding | Invalid GROQ_API_KEY | Check .env |
+| Node-RED not deploying | flows.json not uploaded | Re-run Part 5 |
 """))
 
 cells.append(code("""
@@ -554,21 +554,21 @@ if 'PUBLIC_URL' in dir() and PUBLIC_URL:
 
 # ── Part 12: Wrap-up ───────────────────────────────────────────────────────
 cells.append(md("""---
-## Part 12 — Tổng kết
+## Part 12 — Summary
 
-| Thành phần | Vai trò |
-|-----------|---------|
-| `mqtt_replay.py` | Mô phỏng sensor vật lý, publish MQTT |
+| Component | Role |
+|-----------|------|
+| `mqtt_replay.py` | Simulates physical sensors, publishes MQTT data |
 | Mosquitto | Message broker — pub/sub hub |
-| Node-RED | Edge processing — tính trend, quyết định trigger AI |
+| Node-RED | Edge processing — computes trends, decides when to trigger AI |
 | `server.py` | Backend hub — WebSocket, REST API, AI orchestration |
-| Groq LLM | Phân tích nguyên nhân và đề xuất bảo trì |
-| Dashboard | HMI — hiển thị real-time cho operator |
+| Groq LLM | Root-cause analysis and maintenance recommendations |
+| Dashboard | HMI — real-time display for the operator |
 
-**Điểm mở rộng:**
-- Thêm database (InfluxDB) → phân tích xu hướng dài hạn
-- Thay Groq bằng Ollama local → vận hành offline (air-gapped)
-- Scale lên nhiều máy: phân cấp topic `factory/{site}/pump/{id}/sensors`
+**Extension ideas:**
+- Add a database (InfluxDB) → long-term trend analysis
+- Replace Groq with local Ollama → fully offline (air-gapped) operation
+- Scale to multiple machines: hierarchical topics `factory/{site}/pump/{id}/sensors`
 """))
 
 # ── Write notebook ──────────────────────────────────────────────────────────
