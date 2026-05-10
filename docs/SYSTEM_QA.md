@@ -1,185 +1,107 @@
-# PumpGuard AI — Câu hỏi & Đáp án
+# PumpGuard AI — Câu hỏi & Đáp án thảo luận
 
-> Tài liệu dành cho giảng viên. Mỗi đáp án gắn với code/thiết kế thực tế của hệ thống.
-
----
-
-## 🔧 Kiến trúc IoT & Giao thức
-
-**Q1. Tại sao dùng MQTT thay vì HTTP REST cho sensor data?**
-
-> **Đáp án:** REST hoạt động theo mô hình pull — client phải liên tục gửi request để hỏi "có data mới không?" (polling). Với sensor phát 6 Hz, browser phải gửi 6 HTTP request/giây, mỗi request mang header ~500 byte → lãng phí. MQTT hoạt động theo mô hình push — sensor publish một lần, broker phân phối đến *tất cả* subscriber đồng thời với header chỉ 2 byte. Trong hệ thống này, một lần publish từ `mqtt_replay.py` đến đồng thời `MQTTBridge` (FastAPI) và Node-RED mà không cần thêm bất kỳ code nào.
+> Dành cho giảng viên — câu hỏi theo hướng thực tế, ứng dụng và tư duy.
 
 ---
 
-**Q2. Điều gì xảy ra nếu MQTT broker down 10 giây?**
+## 🏭 IoT & Ứng dụng thực tế
 
-> **Đáp án:** `mqtt_replay.py` sẽ gặp publish error nhưng tiếp tục chạy (paho-mqtt có internal retry). `MQTTBridge` trong `server.py` sẽ kích hoạt `_on_disconnect` → chạy `_reconnect_loop` với backoff 2→4→8→16→30 giây — không crash server. Node-RED sẽ dừng nhận data và flow đứng yên. Dashboard tiếp tục kết nối WebSocket nhưng không nhận sensor_update mới — hiển thị giá trị cuối cùng đã nhận. Sau khi broker phục hồi, hệ thống tự kết nối lại mà không cần restart.
+**Q1. Hệ thống này giải quyết bài toán gì trong thực tế?**
 
----
-
-**Q3. QoS 1 đảm bảo "at-least-once" — khi nào điều này gây vấn đề?**
-
-> **Đáp án:** Nếu broker xác nhận message nhưng acknowledgement bị mất trên đường về, publisher sẽ gửi lại message đó. Node-RED sẽ xử lý cùng một reading hai lần — rolling buffer sẽ có một dòng lặp, làm slope và std_dev tính sai nhẹ. Trong hệ thống này ít ảnh hưởng vì chúng ta quan tâm xu hướng 60 readings, không phải từng điểm. Giải pháp production: thêm `msg_id` vào payload và Node-RED dedup theo ID trước khi push vào buffer.
+> **Đáp án:** Máy bơm công nghiệp hỏng đột ngột gây dừng sản xuất không báo trước — đây là "unplanned downtime", chi phí trung bình $260.000/giờ trong ngành sản xuất (theo Siemens 2023). Hệ thống này phát hiện dấu hiệu xuống cấp sớm (tăng rung động, nhiệt độ leo thang) và gọi AI phân tích — giúp kỹ sư lên lịch bảo trì *trước khi* hỏng hóc, không phải *sau khi* xảy ra. Đây là bài toán **predictive maintenance** — một trong những use case IoT có ROI cao nhất.
 
 ---
 
-**Q4. Nếu có 52 sensor × 100 Hz, kiến trúc thay đổi gì?**
+**Q2. Ngoài máy bơm, hệ thống này có thể áp dụng cho thiết bị nào khác?**
 
-> **Đáp án:** 52 × 100 = 5.200 data points/giây. Không thể gửi từng điểm qua MQTT — overhead quá lớn. Cần: (1) **Micro-aggregation at source**: thiết bị edge tổng hợp 100 readings thành 1 window (avg, min, max, std) mỗi giây trước khi publish. (2) **Binary protocol**: dùng MQTT với payload MessagePack/Protobuf thay vì JSON để giảm 60–80% kích thước. (3) **Topic sharding**: tách `pump/sensors/vibration`, `pump/sensors/temperature`... để Node-RED filter chỉ nhận group cần thiết.
-
----
-
-**Q5. Cả MQTTBridge và Node-RED đều subscribe `pump/sensors` — đánh đổi gì?**
-
-> **Đáp án:** **Ưu điểm:** Tách biệt trách nhiệm rõ ràng — MQTTBridge lo relay data thô lên WebSocket, Node-RED lo edge processing. Nếu Node-RED down, dashboard vẫn nhận data qua MQTTBridge. **Nhược điểm:** Broker phải gửi mỗi message hai lần (double fanout), tốn băng thông gấp đôi trên loopback. Trong hệ thống này, `_nodered_last_inject` timestamp giải quyết vấn đề double-broadcast: khi Node-RED active, MQTTBridge tự im lặng và chỉ update cache `_last_sensor_payload`.
+> **Đáp án:** Bất kỳ thiết bị nào có sensor và cần theo dõi liên tục: động cơ điện (rung động, nhiệt độ), máy nén khí (áp suất, lưu lượng), băng tải (tốc độ, lực kéo), tua-bin gió (rung, nhiệt, công suất), thang máy (dòng điện, tốc độ), hệ thống lạnh (nhiệt độ, áp suất gas). Nguyên tắc giống nhau: sensor → MQTT → phân tích xu hướng → AI phát hiện bất thường → cảnh báo bảo trì.
 
 ---
 
-**Q6. Làm sao quyết định kích thước rolling buffer phù hợp?**
+**Q3. Tại sao không dùng người vận hành đọc số chỉ thị trực tiếp trên máy?**
 
-> **Đáp án:** Câu hỏi thực chất là: "Cần bao nhiêu lịch sử để phát hiện xu hướng có ý nghĩa?" Với máy bơm publish 6 Hz, buffer 60 readings = 10 giây — đủ thấy slope. Công thức: `buffer_size = sampling_rate × observation_window_seconds`. Với kho lạnh sensor nhiệt độ 1 Hz cần thấy drift trong 5 phút → buffer 300. Nguyên tắc: quá nhỏ → quá nhạy với nhiễu; quá lớn → phát hiện chậm. Nên test với dữ liệu thực và đo **time-to-detection** vs **false positive rate**.
-
----
-
-## ⚙️ Thiết kế hệ thống & Kỹ thuật
-
-**Q7. Tại sao broadcast loop chạy ở 2 Hz là quan trọng?**
-
-> **Đáp án:** Node-RED gọi `/simulate/inject` ~6 lần/giây. Nếu mỗi call ngay lập tức `await manager.broadcast()`, với kết nối ngrok latency 200ms, mỗi client nhận 6 message nhưng chỉ xử lý xong 5/giây → build backlog không giới hạn → RAM tăng dần → server freeze sau vài phút. `_broadcast_loop` dùng pattern "last-value wins": 6 payload ghi đè nhau vào `_pending_sensor_payload`, loop drain mỗi 0.5s → client luôn nhận reading mới nhất, không bao giờ bị backlog.
+> **Đáp án:** Ba lý do: (1) **Tần suất**: người đọc tối đa vài lần/ca, sensor đọc 6 lần/giây — bắt được những thay đổi xảy ra trong vài phút. (2) **Đa điểm**: một người không thể đồng thời theo dõi 52 cảm biến trên nhiều máy. (3) **Ngưỡng phức tạp**: vibration 6.5 mm/s là bình thường khi máy chạy không tải, nhưng là cảnh báo khi chạy tải đầy — con người khó nhớ hết các ngưỡng theo ngữ cảnh này, hệ thống tự xử lý được.
 
 ---
 
-**Q8. Tại sao cần `_forced_state` lock trong demo trực tiếp?**
+**Q4. Dữ liệu sensor trong bài này đến từ đâu? Có phải dữ liệu thật không?**
 
-> **Đáp án:** Kịch bản: Presenter nhấn "🔴 Critical" trên control panel → `/control/critical` set `_forced_state = "critical"`. Ngay sau đó Node-RED tiếp tục gọi `/simulate/inject` với data từ MQTT (có thể là NORMAL). Nếu không có lock, dashboard sẽ nhận `state_command: critical` rồi ngay lập tức nhận `sensor_update: overall_status=NORMAL` → badge nhấp nháy liên tục. Với lock, mọi payload đi qua `/simulate/inject` đều bị override: `payload.update({"overall_status": "CRITICAL", "anomaly_detected": True})`.
-
----
-
-**Q9. Tại sao dùng singleton Groq client thay vì tạo mới mỗi request?**
-
-> **Đáp án:** `AsyncGroq()` khởi tạo một `httpx.AsyncClient` với connection pool bên trong. Tạo mới mỗi request = tạo mới connection pool = mỗi Groq call tạo một TCP connection mới (TLS handshake ~200ms overhead) và không bao giờ close pool cũ → rò rỉ file descriptor. Sau ~1000 request, server hết fd → `OSError: [Errno 24] Too many open files`. Singleton giữ connection pool sống, tái sử dụng TCP connection → nhanh hơn và không rò rỉ.
+> **Đáp án:** Có — đây là dataset thật từ một máy bơm công nghiệp, gồm 220.000 dòng readings thu thập qua nhiều ngày, bao gồm cả giai đoạn máy hoạt động bình thường và giai đoạn xuống cấp dẫn đến hỏng hóc. Vì không có sensor vật lý trong workshop, chúng ta dùng `mqtt_replay.py` để phát lại dữ liệu này theo thời gian thực, nén 360× để demo trong vài phút thay vì phải chờ nhiều ngày.
 
 ---
 
-**Q10. 30 học viên cùng trigger anomaly — `Semaphore(2)` xử lý thế nào?**
+## 📡 MQTT & Giao thức
 
-> **Đáp án:** 2 call đầu tiên acquire semaphore và gọi Groq ngay. 28 call còn lại block tại `async with _ai_semaphore` — chúng **không bị từ chối**, chỉ xếp hàng chờ. Khi một Groq call xong (~2-5s), semaphore release → call tiếp theo chạy. Vấn đề: với 28 call xếp hàng, call cuối chờ ~70 giây → timeout 45s sẽ cancel nó → trả mock response. Scale solution: tăng semaphore lên 5-10, thêm request dedup (nếu 5 học viên cùng trigger trong 2s, chỉ gọi AI 1 lần và broadcast kết quả cho tất cả).
+**Q5. MQTT là gì và tại sao IoT lại dùng nó thay vì cách thông thường?**
 
----
-
-**Q11. Tại sao Resend phải dùng `asyncio.to_thread()`?**
-
-> **Đáp án:** `resend.Emails.send()` là blocking HTTP call (dùng `requests` library bên trong, không phải `httpx`). Nếu gọi trực tiếp trong async handler, nó block toàn bộ asyncio event loop trong thời gian Resend API respond (~500ms–2s). Trong thời gian đó, **tất cả WebSocket broadcast bị đóng băng** — không có sensor update nào đến dashboard. `asyncio.to_thread()` chạy blocking call trong thread pool riêng, event loop tiếp tục xử lý coroutine khác. `wait_for(timeout=15s)` đảm bảo nếu Resend unreachable, thread bị cancel sau 15s, không chiếm thread pool mãi.
+> **Đáp án:** MQTT là "ngôn ngữ" để các thiết bị IoT nói chuyện với nhau — nhẹ, nhanh, và hoạt động tốt ngay cả khi mạng không ổn định. Thay vì thiết bị phải liên tục "hỏi" server có gì mới không (như tra email bằng tay), MQTT hoạt động theo kiểu "đăng ký kênh" — thiết bị đăng ký nhận thông tin từ một topic, broker tự động đẩy dữ liệu về ngay khi có. Giống như đăng ký nhận thông báo YouTube thay vì phải vào trang chủ kiểm tra mỗi lúc.
 
 ---
 
-**Q12. `_nodered_last_inject` trong 5 giây — edge case nào gây no data?**
+**Q6. Ngoài nhà máy, MQTT được dùng ở đâu trong cuộc sống?**
 
-> **Đáp án:** Nếu Node-RED chạy nhưng flow bị lỗi sau `Parse & Validate` (ví dụ payload không có `sensors` field), Node-RED vẫn không gọi `/simulate/inject`. Tuy nhiên `_nodered_last_inject` vẫn = 0 → `nodered_active = False` → MQTTBridge broadcast raw payload. Nhưng nếu Node-RED đang start up và đã gọi `/simulate/inject` 1 lần rồi crash ngay, `_nodered_last_inject` sẽ = now → MQTTBridge im lặng 5 giây trong khi Node-RED không gửi gì → dashboard trống 5s. Fix: giảm window xuống 2s hoặc thêm heartbeat endpoint từ Node-RED.
-
----
-
-## 🤖 AI & Machine Learning
-
-**Q13. Thông tin gì bị mất khi gửi JSON snapshot thay vì raw time-series?**
-
-> **Đáp án:** LLM không thấy được: shape của curve (đột ngột tăng vs tăng dần), multi-sensor correlation (vibration tăng đúng lúc pressure giảm — dấu hiệu cavitation), oscillation patterns, hay outlier spikes. Node-RED bù một phần bằng cách tính `slope`, `std_dev`, `rate_of_change`, và `trending` (DEGRADING/IMPROVING/STABLE) — đây là feature engineering thủ công. Giải pháp tốt hơn: gửi cả array `history: [20 readings]` cho mỗi sensor group để LLM có thể suy luận về shape.
+> **Đáp án:** Khắp nơi: Facebook Messenger dùng MQTT để push thông báo đến điện thoại (tiết kiệm pin hơn HTTP); xe điện Tesla dùng MQTT để gửi telemetry về server; đèn đường thông minh dùng MQTT để nhận lệnh bật/tắt từ trung tâm; ứng dụng giao xe (Grab, Gojek) dùng MQTT để cập nhật vị trí tài xế theo thời gian thực; hệ thống tưới tiêu thông minh dùng để điều khiển van từ xa. MQTT có trên 70 triệu thiết bị đang dùng trên toàn thế giới.
 
 ---
 
-**Q14. Rủi ro khi tin vào ước tính số của LLM trong context an toàn?**
+## 🔴 Node-RED
 
-> **Đáp án:** LLM không có model vật lý của máy bơm — nó suy luận từ pattern trong training data. `estimated_hours_to_failure: 4` có thể sai lệch 10× trong thực tế. Rủi ro: (1) **Overconfidence** — operator tin tuyệt đối và delay bảo trì 3 giờ → máy hỏng sớm hơn. (2) **False urgency** — ước tính quá thấp → shutdown không cần thiết, mất sản xuất. Biện pháp: hiển thị rõ "AI estimate — not certified" trên UI, thêm confidence interval, chỉ dùng ước tính để *ưu tiên* hành động, không để *quyết định* thay người.
+**Q7. Node-RED là gì? Tại sao workshop này dùng nó?**
 
----
-
-**Q15. Hiểu thế nào về `HIGH` risk với `confidence: 0.45`?**
-
-> **Đáp án:** `confidence: 0.45` nghĩa là LLM chỉ khoảng 45% chắc chắn — ngang mức đoán mò. HIGH risk + thấp confidence = "có dấu hiệu đáng lo nhưng tôi không chắc". Operator không nên hành động như thể đây là emergency, nhưng cũng không nên bỏ qua. UI cải thiện: hiển thị confidence dưới dạng thanh màu (xanh → đỏ), thêm text "Dữ liệu không đủ rõ ràng để đưa ra kết luận chắc chắn", và recommend "tăng tần suất giám sát" thay vì "dừng máy ngay".
+> **Đáp án:** Node-RED là công cụ lập trình bằng kéo thả — bạn kết nối các "khối chức năng" với nhau để tạo luồng xử lý dữ liệu mà không cần viết nhiều code. Trong workshop này, Node-RED đóng vai trò "bộ não xử lý tại chỗ": nhận dữ liệu thô từ sensor, tính toán xu hướng, rồi quyết định có cần gọi AI cảnh báo không. Dùng Node-RED vì nó trực quan — học viên có thể thấy ngay dữ liệu chạy qua từng bước xử lý, không phải đọc code mới hiểu được luồng.
 
 ---
 
-**Q16. Thiết kế throttling thông minh hơn cho AI call?**
+**Q8. Trong thực tế, kỹ sư IoT có dùng Node-RED không?**
 
-> **Đáp án:** Thay vì throttle theo thời gian cố định (1/60s), dùng **change-triggered throttle**: so sánh snapshot hiện tại với snapshot lần AI call trước. Nếu `|current_health - last_ai_health| > 15` hoặc bất kỳ sensor nào đổi status (NORMAL→WARNING) → gọi AI ngay bất kể cooldown. Nếu không thay đổi đáng kể → tiếp tục chờ. Trong Node-RED: lưu `context.set('lastAISnapshot', snapshot)`, so sánh trước khi throttle. Điều này đảm bảo AI được gọi khi *tình huống thực sự xấu đi nhanh*, không bị bỏ lỡ do đang trong cooldown window.
-
----
-
-**Q17. Rule-based anomaly detection vs trained ML model — giới hạn gì?**
-
-> **Đáp án:** Rule-based (ngưỡng + slope): dễ giải thích, không cần data, nhưng ngưỡng cứng → không thích nghi với wear & tear (máy cũ bình thường ở mức cao hơn), bỏ sót pattern phức tạp (vibration bình thường nhưng kết hợp temperature cao = vấn đề). ML model (Isolation Forest): học "normal" từ dữ liệu, phát hiện outlier đa chiều, không cần set ngưỡng thủ công. Cần để train: ít nhất 1-2 tuần dữ liệu NORMAL (khoảng 1M+ readings), label cho các sự cố đã biết, feature engineering (lag features, rolling stats). Dataset 220K rows hiện có là điểm khởi đầu tốt.
+> **Đáp án:** Có — Node-RED được dùng rộng rãi trong ngành công nghiệp, đặc biệt với doanh nghiệp vừa và nhỏ muốn triển khai IoT nhanh mà không cần team phát triển lớn. IBM và Siemens đều tích hợp Node-RED vào platform IoT của họ. Tuy nhiên ở quy mô lớn (hàng nghìn thiết bị), các công ty thường chuyển sang Apache Kafka hoặc Flink vì Node-RED khó scale. Node-RED phù hợp nhất cho: prototyping nhanh, nhà máy nhỏ-vừa, và giảng dạy IoT vì tính trực quan.
 
 ---
 
-**Q18. Truy cập 60 readings đầy đủ sẽ thay đổi AI thế nào?**
+**Q9. Nếu không có Node-RED, hệ thống có vẫn hoạt động không?**
 
-> **Đáp án:** Thay vì chỉ thấy `{vibration: {current: 7.1, slope: 0.05, status: CRITICAL}}`, LLM thấy array `[4.2, 4.5, 4.8, 5.1, 5.6, 6.2, 6.8, 7.1...]` — có thể nhận ra rằng tăng từ từ trong 60s (wear) khác với nhảy vọt trong 5s (impact damage). Phân biệt hai pattern này dẫn đến khuyến nghị khác nhau hoàn toàn: wear → lên lịch thay bearing trong 4h; impact damage → dừng máy ngay kiểm tra. Payload gửi đến Groq sẽ lớn hơn (~5-10KB vs ~1KB hiện tại) nhưng chất lượng phân tích tốt hơn đáng kể.
-
----
-
-## 📊 Kinh doanh & Use Case IoT
-
-**Q19. Cần dữ liệu gì để ước tính chi phí chính xác?**
-
-> **Đáp án:** LLM hiện dùng con số mặc định trong system prompt. Để chính xác cần: (1) Chi phí downtime thực tế ($/giờ mất sản xuất), (2) Chi phí thay thế từng component (bearing, seal, impeller), (3) Chi phí nhân công bảo trì (giờ công × đơn giá), (4) Lịch sử MTTR (Mean Time To Repair) của nhà máy. Chi phí ẩn LLM hay bỏ sót: sản phẩm hỏng trong downtime, hư hại domino (một pump hỏng → overload pump dự phòng), penalty hợp đồng nếu giao hàng trễ, chi phí kiểm tra an toàn sau sự cố.
+> **Đáp án:** Có — và thực ra trong hệ thống này, FastAPI backend đã tự nhận dữ liệu từ MQTT và đẩy lên dashboard. Node-RED đóng vai trò "tầng xử lý thông minh ở giữa": nó tính toán xu hướng 60 readings và quyết định khi nào trigger cảnh báo AI, thay vì để backend tự làm mọi thứ. Đây là pattern đúng với IoT thực tế — xử lý ở "edge" (gần nguồn dữ liệu) thay vì gửi mọi thứ lên cloud.
 
 ---
 
-**Q20. Quản lý alert fatigue với 200 máy bơm?**
+## 🤖 AI trong IoT
 
-> **Đáp án:** Cơ chế hiện tại (1 email/60s/máy) → 200 máy × 24h = có thể hàng nghìn email/ngày. Giải pháp: (1) **Alert grouping**: tổng hợp nhiều cảnh báo cùng loại trong 5 phút thành 1 email "3 máy bơm có anomaly: B12, B15, B23". (2) **Severity routing**: WARNING → ticket trong hệ thống CMMS, không email; CRITICAL → email + SMS. (3) **Smart suppression**: nếu cùng máy đã cảnh báo và chưa được xử lý, không gửi lại. (4) **Shift-based routing**: cảnh báo 2h sáng → chỉ đến on-call engineer, không broadcast toàn team.
+**Q10. AI trong hệ thống này làm gì khác so với việc chỉ so sánh ngưỡng?**
 
----
-
-**Q21. Thêm gì để hỗ trợ phân tích xu hướng dài hạn?**
-
-> **Đáp án:** Cần thêm: (1) **Time-series database**: InfluxDB hoặc TimescaleDB — tối ưu cho write nhiều, query theo range thời gian. Grafana connect trực tiếp để visualize. (2) **Event store**: PostgreSQL lưu AI recommendations và alert history với full-text search. (3) Trong `_on_message` hoặc `/simulate/inject`: ghi mỗi payload vào DB async (không block broadcast). Schema tối giản: `(timestamp, machine_id, vibration, temperature, pressure, flow_rate, health_score, overall_status)`. Với 6 Hz × 30 ngày = ~15M rows/máy → cần retention policy (giữ raw 7 ngày, aggregate 1 năm).
+> **Đáp án:** So sánh ngưỡng chỉ trả lời "có vượt ngưỡng không?" — ví dụ vibration > 7 = cảnh báo. AI trả lời những câu phức tạp hơn: "Dựa trên pattern này, nguyên nhân có thể là gì? Còn bao nhiêu giờ trước khi hỏng hoàn toàn? Nên làm gì ngay bây giờ? Nếu dừng bảo trì hôm nay vs để đến cuối tuần thì tiết kiệm được bao nhiêu chi phí?" — những câu hỏi này cần hiểu ngữ cảnh kỹ thuật, không chỉ là phép so sánh số.
 
 ---
 
-**Q22. Thiết kế topic hierarchy cho 50 máy?**
+**Q11. Tại sao không dùng AI ngay từ đầu mà cần Node-RED tính toán trước?**
 
-> **Đáp án:** Thay `pump/sensors` bằng: `factory/{site_id}/pump/{pump_id}/sensors`. Ví dụ: `factory/hanoi/pump/B12/sensors`. Node-RED dùng wildcard: `factory/+/pump/+/sensors` để nhận tất cả, hoặc `factory/hanoi/pump/B12/sensors` để chỉ nhận một máy. Thêm topics: `factory/hanoi/pump/B12/control` (nhận lệnh từ backend), `factory/hanoi/pump/B12/alerts` (publish alert từ edge). Backend cần thêm `pump_id` vào mọi payload để dashboard biết data của máy nào. Node-RED flow cần thêm node extract `pump_id` từ topic trước khi xử lý.
-
----
-
-**Q23. 3 single points of failure trong Colab setup?**
-
-> **Đáp án:** (1) **Colab Runtime**: tự ngắt sau 90 phút idle hoặc 12h — toàn bộ hệ thống dừng. Fix: dùng VPS (DigitalOcean $6/tháng) hoặc Google Cloud Run với container. (2) **Cloudflare Tunnel URL**: thay đổi mỗi lần restart — học viên mất link dashboard. Fix: domain tĩnh qua Cloudflare Named Tunnel hoặc ngrok với reserved domain. (3) **Single MQTT Broker**: broker down → mọi data flow dừng. Fix: Mosquitto cluster hoặc HiveMQ Cloud (managed, HA). Bonus SPOF: tất cả dịch vụ trên 1 process — nếu uvicorn crash, cả WebSocket lẫn REST đều mất. Fix: supervisor/systemd để auto-restart.
+> **Đáp án:** Gọi AI mỗi 167ms (6 lần/giây) là không thực tế — tốn quota API, chậm, và tốn kém. Hơn nữa, một điểm dữ liệu đơn lẻ không đủ thông tin: vibration 6.5 mm/s ở thời điểm T không nói lên nhiều, nhưng "tăng từ 3.0 lên 6.5 trong vòng 30 giây với xu hướng tiếp tục leo thang" mới đáng lo. Node-RED tổng hợp 60 readings thành một "bản tóm tắt" có ý nghĩa rồi mới gọi AI — vừa tiết kiệm, vừa cho AI đủ ngữ cảnh để phân tích tốt hơn.
 
 ---
 
-**Q24. Hoạt động offline được không?**
+**Q12. Groq là gì? Tại sao chọn Groq thay vì ChatGPT hay Gemini?**
 
-> **Đáp án:** **Offline hoàn toàn:** `mqtt_replay.py` ✅, Mosquitto ✅, Node-RED ✅, FastAPI (không AI, không email) ✅, Dashboard ✅. **Cần internet:** Groq API ❌ (LLM inference trên cloud), Resend email ❌, Cloudflare Tunnel ❌ (chỉ cần nếu remote access). **Để offline hoàn toàn:** (1) Thay Groq bằng Ollama chạy local (llama3.2 3B đủ dùng trên laptop tốt), (2) Thay Resend bằng SMTP local (Postfix) hoặc bỏ email thay bằng MQTT alert topic, (3) Dashboard truy cập qua `localhost:8000` thay vì tunnel. Use case: nhà máy trong khu công nghiệp không có internet ổn định.
-
----
-
-## 🔬 Nâng cao / Mở rộng
-
-**Q25. Tại sao dashboard suppress WebSocket update khi local sim chạy?**
-
-> **Đáp án:** Khi presenter nhấn "⚠ Simulate Warning", `startSimStream('warning')` set `_simInterval` và bắt đầu gọi `processSensorUpdate(makeSensorPayload('warning'))` mỗi giây với dữ liệu giả lập. Đồng thời, WebSocket vẫn nhận `sensor_update` từ backend (có thể là data NORMAL từ MQTT). Nếu không suppress, hai luồng data chạy song song → badge status nhấp nháy NORMAL/WARNING liên tục, health score dao động lạ, chart bị "nhiễu" hai profile. Guard `if (!_simInterval)` đảm bảo khi đang demo local sim, WS data bị bỏ qua hoàn toàn.
+> **Đáp án:** Groq là công ty chip AI — họ tự thiết kế chip xử lý ngôn ngữ (LPU) nhanh hơn GPU thông thường khoảng 10 lần. Trong workshop này chọn Groq vì: free tier rộng rãi (14.400 request/ngày), đủ cho nhiều học viên dùng cùng lúc mà không bị lỗi 429 "quota exceeded". Còn Gemini free tier chỉ cho 5 request/phút — rất dễ bị nghẽn khi cả lớp cùng test. ChatGPT không có free tier đủ dùng cho workshop. Model dùng là llama-3.3-70b — mã nguồn mở, chạy tốt cho phân tích kỹ thuật.
 
 ---
 
-**Q26. Thiết kế "digital twin" extension?**
+## 📊 Giá trị kinh doanh
 
-> **Đáp án:** Cần thêm: (1) **Physics model**: equation đơn giản mô phỏng wear — ví dụ `vibration(t+1) = vibration(t) + slope * dt + noise`. Calibrate từ 60 readings lịch sử. (2) **Prediction engine**: chạy model forward 60 phút, trả về array `[{t: +10min, vibration: 7.5, health: 65}, ...]`. (3) **API endpoint** `/predict?horizon=60`: trả về prediction array. (4) **Dashboard panel**: chart dashed line hiển thị predicted trajectory, với confidence band (std_dev nhân hệ số). (5) Integration: Node-RED sau `Compute Trends` gửi slope/intercept đến `/predict`, kết quả broadcast qua WebSocket `{type: "prediction", ...}`.
+**Q13. Làm thế nào để thuyết phục ban quản lý đầu tư vào hệ thống IoT như này?**
 
----
-
-**Q27. Làm ngưỡng thích nghi với load context?**
-
-> **Đáp án:** Cần thêm `load_pct` (0–100) vào MQTT payload từ simulator. Node-RED lookup ngưỡng động: thay vì `vibration_warn = 4.5` cố định, dùng linear interpolation: `vibration_warn = 3.0 + (load_pct/100) * 2.5` → 50% load = warn ở 4.25, 100% load = warn ở 5.5. Trong `sensor_groups.json` thêm: `{"warn_at_0pct": 3.0, "warn_at_100pct": 5.5}`. Tiếp theo: học ngưỡng từ dữ liệu — tính percentile 95 của vibration trong rolling window 24h khi machine_status=NORMAL → đây là "baseline" động, tự điều chỉnh theo điều kiện thực tế.
+> **Đáp án:** Số liệu cụ thể thường thuyết phục hơn lý thuyết: (1) Chi phí 1 lần dừng máy khẩn cấp so với 1 lần bảo trì có kế hoạch — thường chênh lệch 5–10 lần. (2) Thời gian triển khai: với stack này có thể pilot trong 2–4 tuần. (3) ROI rõ ràng: nếu ngăn được 1 lần dừng máy/năm, hệ thống đã hoàn vốn. Ngoài ra, bảo trì dự đoán giảm tồn kho phụ tùng (không cần giữ nhiều linh kiện dự phòng vì biết trước khi nào cần), và giảm rủi ro an toàn lao động.
 
 ---
 
-**Q28. Thay Groq bằng model nhỏ on-device — đánh đổi gì?**
+**Q14. Hệ thống này phù hợp với quy mô doanh nghiệp nào?**
 
-> **Đáp án:** **Phi-3 mini (3.8B)** chạy trên Raspberry Pi 5 (8GB RAM): inference ~15-30s/response vs Groq ~1-2s. **Mất:** tốc độ, độ phức tạp lý luận, khả năng tiếng Việt (model nhỏ yếu hơn). **Được:** hoàn toàn offline, không phụ thuộc API quota, độ trễ không phụ thuộc internet, dữ liệu nhạy cảm không rời khỏi nhà máy (privacy/compliance). **Scenarios xứng đáng:** nhà máy dầu khí offshore không có internet ổn định, khu công nghiệp restricted network (quân sự, dược phẩm), use case cần GDPR compliance nghiêm ngặt, hoặc khi Groq free tier không đủ cho 24/7 production monitoring.
+> **Đáp án:** Với stack hiện tại (Colab + free tier APIs), phù hợp để: demo, học tập, và pilot với 1–5 máy. Với VPS nhỏ ($20–50/tháng) và database, có thể quản lý 20–50 máy. Doanh nghiệp vừa (50–500 máy) cần thêm time-series database (InfluxDB), alert management và dashboard phân tầng. Doanh nghiệp lớn (500+ máy) thường dùng platform chuyên dụng như AWS IoT, Azure IoT Hub, hoặc Siemens MindSphere — nhưng nguyên tắc hoạt động giống hệt workshop này.
 
 ---
 
-*Tài liệu này chỉ dành cho giảng viên — không phát cho học viên trước buổi thảo luận.*
+**Q15. Ngoài máy móc, IoT predictive maintenance còn ứng dụng ở đâu?**
+
+> **Đáp án:** Cầu đường và kết cấu hạ tầng (cảm biến rung động phát hiện vết nứt sớm), đường ống dẫn dầu khí (cảm biến áp suất và rò rỉ), trung tâm dữ liệu (nhiệt độ server, tốc độ quạt), máy bay (hàng nghìn sensor theo dõi từng chuyến bay), lưới điện thông minh (phát hiện biến áp sắp hỏng), thậm chí nông nghiệp (sensor đất dự đoán khi nào cần tưới/bón phân). Bất cứ chỗ nào có tài sản vật lý quan trọng và chi phí hỏng hóc cao đều là ứng viên cho IoT predictive maintenance.
+
+---
+
+*Các câu hỏi trên phù hợp để mở thảo luận sau mỗi phần demo — không cần học viên trả lời đúng hoàn toàn, quan trọng là kích thích tư duy về ứng dụng thực tế.*
