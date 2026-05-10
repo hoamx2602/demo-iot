@@ -338,10 +338,11 @@ except Exception as e:
 cells.append(md("""---
 ## Part 7 — Sensor Simulator
 
-### Upload these 3 files:
-1. `sensor.csv` → `data/`
-2. `analyze_sensors.py` → `scripts/`
-3. `mqtt_replay.py` → `scripts/`
+### Upload these 2 files:
+1. `analyze_sensors.py` → `scripts/`
+2. `mqtt_replay.py` → `scripts/`
+
+`sensor.csv` will be downloaded automatically in the cell below.
 
 ---
 
@@ -361,11 +362,22 @@ Reads the CSV row by row, applies scale/offset from config, and publishes a JSON
 - Can jump directly to the fault row: `--start-at-anomaly`
 - Accepts commands via topic `pump/control`: PAUSE / RESUME / STOP / JUMP:<row>
 
-### 7.1 Analyse the dataset
+### 7.1 Download dataset & analyse
 """))
 
 cells.append(code("""
-import subprocess, sys
+import urllib.request, subprocess, sys, os
+
+CSV_URL = 'https://smath-link-dev.s3.dualstack.ap-southeast-1.amazonaws.com/iot/sensor.csv'
+csv_path = '/content/pump-iot-demo/data/sensor.csv'
+
+if not os.path.exists(csv_path):
+    print("Downloading sensor.csv ...")
+    urllib.request.urlretrieve(CSV_URL, csv_path)
+    size_mb = os.path.getsize(csv_path) / 1024 / 1024
+    print(f"Downloaded: {size_mb:.1f} MB")
+else:
+    print("sensor.csv already exists — skipping download.")
 
 result = subprocess.run(
     [sys.executable, 'scripts/analyze_sensors.py',
