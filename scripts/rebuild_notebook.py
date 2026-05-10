@@ -112,14 +112,13 @@ Fill in your API keys below and run the cell — the `.env` file will be created
 cells.append(code("""
 GROQ_API_KEY   = ''   # https://console.groq.com → API Keys
 RESEND_API_KEY = ''   # https://resend.com → API Keys (leave empty to skip emails)
-ALERT_FROM     = ''   # sender email address (must be verified on Resend)
 ALERT_TO       = ''   # recipient email address for alerts
 
 env_content = f\"\"\"MQTT_HOST=localhost
 MQTT_PORT=1883
 GROQ_API_KEY={GROQ_API_KEY}
 RESEND_API_KEY={RESEND_API_KEY}
-ALERT_FROM={ALERT_FROM}
+ALERT_FROM=onboarding@resend.dev
 ALERT_TO={ALERT_TO}
 \"\"\"
 
@@ -127,6 +126,7 @@ with open('/content/pump-iot-demo/backend/.env', 'w') as f:
     f.write(env_content)
 print(".env created.")
 """))
+
 
 # ── Part 4: MQTT ────────────────────────────────────────────────────────────
 cells.append(md("""---
