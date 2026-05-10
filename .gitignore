@@ -1,22 +1,16 @@
-# Ignore Python cache
+# Python
 __pycache__/
 *.pyc
+*.pyo
 
-# Ignore environment variables
+# Environment variables
 .env
-.env.example
-.env*
-**/.env
-**/.env.example
-**/*.env
+.env.*
 
-# Ignore Docker
-backend/__pycache__/
-backend/__pycache__/
-backend/__pycache__/
-backend/__pycache__/
+# macOS
+.DS_Store
+**/.DS_Store
 
+# Data files (too large for git)
 *.csv
 **/*.csv
-
-.DS_Store
