@@ -287,7 +287,7 @@ else:
 cells.append(md("### 6.2 Create public URL (ngrok)"))
 
 cells.append(code("""
-import os, subprocess, time, requests, shutil
+import os, subprocess, time, requests
 
 NGROK_TOKEN = ''   # https://dashboard.ngrok.com/get-started/your-authtoken
 
@@ -295,7 +295,7 @@ PUBLIC_URL  = None
 NODERED_URL = None
 
 # ── Install ngrok if not present ──────────────────────────────────────────
-if not shutil.which('ngrok'):
+if subprocess.run(['which', 'ngrok'], capture_output=True).returncode != 0:
     print("Installing ngrok...")
     subprocess.run(
         'curl -sSL https://ngrok-agent.s3.amazonaws.com/ngrok.asc | '
@@ -305,7 +305,8 @@ if not shutil.which('ngrok'):
         'apt-get update -qq && apt-get install -y -q ngrok',
         shell=True, capture_output=True
     )
-    print("ngrok installed." if shutil.which('ngrok') else "ngrok install failed — check network.")
+    ok = subprocess.run(['which', 'ngrok'], capture_output=True).returncode == 0
+    print("ngrok installed." if ok else "ngrok install failed — check network.")
 else:
     print("ngrok already installed.")
 
