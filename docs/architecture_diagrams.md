@@ -228,6 +228,52 @@ sequenceDiagram
 
 ---
 
+## 7. IoT 4-Layer Architecture Overview
+
+```mermaid
+flowchart TB
+    subgraph L1["Layer 1 — Perception"]
+        direction LR
+        S1["⚡ Vibration\n13 sensors"]
+        S2["🌡 Temperature\n12 sensors"]
+        S3["📊 Pressure\n14 sensors"]
+        S4["💧 Flow Rate\n13 sensors"]
+    end
+
+    subgraph L2["Layer 2 — Network"]
+        direction LR
+        PUB["Publisher\nmqtt_replay.py"]
+        BROKER["MQTT Broker\nMosquitto :1883"]
+        PUB -->|"MQTT publish\npump/sensors"| BROKER
+    end
+
+    subgraph L3["Layer 3 — Processing"]
+        direction LR
+        NR["Edge Processing\nNode-RED\nAnomaly Detection"]
+        API["Backend\nFastAPI\nWebSocket Hub"]
+        AI["AI Analytics\n& Decision\nGroq LLM"]
+        NR -->|"HTTP"| API
+        API -->|"REST"| AI
+    end
+
+    subgraph L4["Layer 4 — Application"]
+        direction LR
+        DASH["Real-time Dashboard\nHealth · Trends · Alerts"]
+        EMAIL["Email Notification\nCRITICAL / WARNING"]
+    end
+
+    L1 -->|"Sensor readings\n~167ms interval"| L2
+    L2 -->|"MQTT subscribe"| L3
+    L3 -->|"WebSocket\nHTTP"| L4
+
+    style L1 fill:#1e3a2f,color:#a7f3d0,stroke:#34d399
+    style L2 fill:#1a2e4a,color:#93c5fd,stroke:#60a5fa
+    style L3 fill:#2d1f3d,color:#c4b5fd,stroke:#a78bfa
+    style L4 fill:#3d2a1a,color:#fcd34d,stroke:#f59e0b
+```
+
+---
+
 ## Summary
 
 | # | Diagram | Notebook Section | Mermaid Type |
@@ -238,3 +284,4 @@ sequenceDiagram
 | 4 | Simulator Pipeline | Part 7 | `flowchart LR` |
 | 5 | End-to-End Check | Part 8 | `flowchart TD` |
 | 6 | AI & Alert Flow | Part 9 | `sequenceDiagram` |
+| 7 | **IoT 4-Layer Overview** | Workshop intro | `flowchart TB` |
