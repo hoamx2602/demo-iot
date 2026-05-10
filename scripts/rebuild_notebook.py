@@ -431,69 +431,25 @@ if 'PUBLIC_URL' in dir() and PUBLIC_URL:
     print(f"\\nDashboard: {PUBLIC_URL}/dashboard/")
 """))
 
-# ── Part 9: AI & Email ─────────────────────────────────────────────────────
+# ── Part 9: Demo ──────────────────────────────────────────────────────────
 cells.append(md("""---
-## Part 9 — AI Analysis & Email Alerts
+## Part 9 — Demo: Simulate a Fault
 
-Node-RED automatically calls `/alert` when it detects an anomaly.
-The cells below allow you to test both endpoints manually.
-"""))
+**Objective:** Observe the full end-to-end pipeline under a real fault scenario — from sensor anomaly through edge detection to AI analysis and alert.
 
-cells.append(code("""
-import requests, datetime
+**What happens in this part:**
+Node-RED has been accumulating 60-reading rolling buffers since the simulator started. When CRITICAL data arrives, it computes slope and anomaly_score, crosses the threshold, throttles to 1 call/60s, and POSTs to `/alert`. The backend calls Groq LLM, which returns a structured risk assessment. The dashboard updates in real time, and an email is dispatched if Resend is configured.
 
-_base = PUBLIC_URL if 'PUBLIC_URL' in dir() and PUBLIC_URL else 'http://localhost:8000'
+**Why this matters:** This demonstrates the core value proposition of IoT predictive maintenance — the system detects degradation automatically, without any human intervention, and surfaces actionable recommendations within seconds of anomaly detection.
 
-snapshot = {
-    'timestamp': datetime.datetime.utcnow().isoformat(),
-    'machine_status': 'BROKEN', 'health_score': 22.5, 'overall_status': 'CRITICAL',
-    'sensors': {
-        'vibration':   {'current': 7.82, 'avg_60_readings': 5.4,  'trend': 'DEGRADING', 'status': 'CRITICAL', 'rate_of_change': 0.12},
-        'temperature': {'current': 96.5, 'avg_60_readings': 82.1, 'trend': 'DEGRADING', 'status': 'CRITICAL', 'rate_of_change': 0.8},
-        'pressure':    {'current': 9.8,  'avg_60_readings': 8.1,  'trend': 'STABLE',    'status': 'WARNING',  'rate_of_change': 0.05},
-        'flow_rate':   {'current': 85.0, 'avg_60_readings': 140.0,'trend': 'DEGRADING', 'status': 'CRITICAL', 'rate_of_change': -2.1},
-    }
-}
-r = requests.post(_base + '/analyze', json={'snapshot': snapshot}, timeout=30)
-if r.status_code == 200:
-    ai = r.json()
-    print(f"Risk      : {ai.get('risk_level')}")
-    print(f"Confidence: {ai.get('confidence')}")
-    print(f"Summary   : {ai.get('summary','')[:120]}")
-    print(f"Est. hours: {ai.get('estimated_hours_to_failure')}")
-else:
-    print(f"Error {r.status_code}: {r.text[:200]}")
-"""))
-
-cells.append(code("""
-import requests
-
-_base = PUBLIC_URL if 'PUBLIC_URL' in dir() and PUBLIC_URL else 'http://localhost:8000'
-
-r = requests.post(_base + '/alert', json={
-    'level': 'CRITICAL', 'health_score': 22.5,
-    'message': 'Test alert from workshop notebook.',
-    'sensor_summary': {'Vibration': '7.82 mm/s', 'Temperature': '96.5 °C', 'Pressure': '9.8 bar', 'Flow Rate': '85.0 m³/h'},
-    'sensor_statuses': {'Vibration': 'CRITICAL', 'Temperature': 'CRITICAL', 'Pressure': 'WARNING', 'Flow Rate': 'CRITICAL'},
-    'ai_risk_level': 'CRITICAL', 'estimated_hours_to_failure': 6, 'estimated_savings': 513500,
-}, timeout=10)
-result = r.json()
-status = result.get('status', '?')
-if status == 'sent':
-    print(f"Email sent → {result.get('to')}")
-elif status == 'skipped':
-    print(f"Skipped: {result.get('reason')} (configure RESEND_API_KEY in .env to enable)")
-else:
-    print(result)
-"""))
-
-# ── Part 10: Demo ──────────────────────────────────────────────────────────
-cells.append(md("""---
-## Part 10 — Demo: Simulate a Fault
+**Future extensions:**
+- Add a SCADA integration layer to forward alerts to plant control systems
+- Implement alert escalation: WARNING → email, CRITICAL → SMS + phone call
+- Store AI recommendations in a database to build a maintenance history log
 
 ### Scenario A — Switch to CRITICAL (machine failure)
 
-Restarts the simulator from the fault row. Node-RED will detect the anomaly within ~60s and trigger an AI analysis.
+Restarts the simulator from the fault row. Node-RED detects the anomaly within ~60s and triggers AI analysis.
 """))
 
 cells.append(code("""
@@ -532,55 +488,41 @@ sim_proc = subprocess.Popen(
 print("Simulator → NORMAL mode.")
 """))
 
-# ── Part 11: Monitor ───────────────────────────────────────────────────────
+# ── Part 10: Wrap-up ───────────────────────────────────────────────────────
 cells.append(md("""---
-## Part 11 — System Status
+## Part 10 — Summary & What's Next
 
-| Symptom | Likely Cause | Fix |
-|---------|-------------|-----|
-| Dashboard blank | FastAPI not running | Re-run Part 6.1 |
-| No data on chart | Simulator not running | Re-run Part 7.2 |
-| AI not responding | Invalid GROQ_API_KEY | Check .env |
-| Node-RED not deploying | flows.json not uploaded | Re-run Part 5 |
-"""))
+**What you built:**
 
-cells.append(code("""
-import requests
+| Component | Role in the system | Production equivalent |
+|-----------|-------------------|-----------------------|
+| `mqtt_replay.py` | Replays real industrial sensor data over MQTT | Physical sensor array (vibration, temperature, pressure, flow) |
+| Mosquitto | Lightweight pub/sub message broker | HiveMQ Cloud, AWS IoT Core, Azure IoT Hub |
+| Node-RED | Edge processing: rolling buffers, trend computation, anomaly scoring | Siemens SIMATIC, AWS Greengrass, Azure IoT Edge |
+| `server.py` | Central hub: WebSocket fanout, REST API, AI orchestration | FastAPI on Kubernetes, or AWS Lambda + API Gateway |
+| Groq LLM | Translates sensor anomalies into root-cause explanations and ranked actions | Fine-tuned domain model, or GPT-4 with equipment manuals in context |
+| Dashboard | Real-time HMI for operators | Grafana, SCADA panel, or custom React app |
+| Resend | Out-of-band alert delivery | PagerDuty, Twilio, OpsGenie |
 
-def check(name, proc, url=None):
-    alive = proc is not None and proc.poll() is None
-    status = 'running' if alive else 'STOPPED'
-    http = ''
-    if alive and url:
-        try: http = f" | HTTP {requests.get(url, timeout=2).status_code}"
-        except: http = ' | unreachable'
-    print(f"{'ok' if alive else '!!'} {name}: {status}{http}")
+---
 
-check('FastAPI :8000', locals().get('fastapi_proc'), 'http://localhost:8000/health')
-check('Simulator',     locals().get('sim_proc'))
-check('Mosquitto',     locals().get('mosq_proc'))
-check('Node-RED :1880',locals().get('nr_proc'), 'http://localhost:1880')
-if 'PUBLIC_URL' in dir() and PUBLIC_URL:
-    print(f"\\nDashboard: {PUBLIC_URL}/dashboard/")
-"""))
+**Key design decisions and why they matter:**
 
-# ── Part 12: Wrap-up ───────────────────────────────────────────────────────
-cells.append(md("""---
-## Part 12 — Summary
+- **Edge intelligence (Node-RED):** Processing trends at the edge reduces AI API calls from 6/s to at most 1/60s, cutting cost by 99.7% while preserving detection quality.
+- **2 Hz broadcast loop:** Decoupling MQTT ingest rate from WebSocket send rate prevents memory backlogs when clients are on slow connections (ngrok, mobile).
+- **Groq LPU:** ~10× faster inference than GPU-based providers, and a generous free tier (14,400 req/day) — suitable for multi-user workshops and small production deployments.
+- **Structured AI output (`response_format: json_object`):** Guarantees parseable JSON every time, enabling downstream automation without brittle string parsing.
 
-| Component | Role |
-|-----------|------|
-| `mqtt_replay.py` | Simulates physical sensors, publishes MQTT data |
-| Mosquitto | Message broker — pub/sub hub |
-| Node-RED | Edge processing — computes trends, decides when to trigger AI |
-| `server.py` | Backend hub — WebSocket, REST API, AI orchestration |
-| Groq LLM | Root-cause analysis and maintenance recommendations |
-| Dashboard | HMI — real-time display for the operator |
+---
 
-**Extension ideas:**
-- Add a database (InfluxDB) → long-term trend analysis
-- Replace Groq with local Ollama → fully offline (air-gapped) operation
-- Scale to multiple machines: hierarchical topics `factory/{site}/pump/{id}/sensors`
+**Ideas to extend this system:**
+
+1. **Persistence layer** — Connect InfluxDB to store every sensor reading. Query 30-day trends in Grafana to correlate maintenance cycles with degradation patterns.
+2. **Multi-machine scale** — Adopt topic hierarchy `factory/{site}/pump/{id}/sensors`. Node-RED uses wildcards to fan-in from 50+ machines into one processing flow.
+3. **Offline / air-gapped operation** — Replace Groq with [Ollama](https://ollama.com) running `llama3.2:3b` on a local server. Replace Resend with a local SMTP relay. The full stack runs without internet.
+4. **Context-aware thresholds** — Add `load_pct` to sensor payloads. Node-RED interpolates thresholds dynamically: `warn_vibration = 3.0 + (load_pct/100) * 2.5`, eliminating false alarms at partial load.
+5. **Digital twin** — Run a physics-based simulation alongside live data. Feed current slope/intercept values to a forward model and display a predicted failure trajectory on the dashboard.
+6. **Trained ML model** — Replace Node-RED rule-based anomaly scoring with an Isolation Forest or LSTM trained on the 220k-row dataset. Reduces tuning effort for new machine types.
 """))
 
 # ── Write notebook ──────────────────────────────────────────────────────────
@@ -606,3 +548,5 @@ if '--write' in sys.argv:
     with open(out, 'w') as f:
         json.dump(nb, f, indent=1, ensure_ascii=False)
     print(f"Written: {out}")
+
+
