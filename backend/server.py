@@ -149,37 +149,52 @@ class AnalyzeRequest(BaseModel):
 class ConnectionManager:
     def __init__(self):
         self.active: list[WebSocket] = []
+        # Per-connection write lock — prevents concurrent ws.send_json() on the
+        # same socket when /simulate/inject fires faster than the send completes.
+        # WebSocket frames must be serialized per-connection; concurrent writes
+        # corrupt the stream and can deadlock starlette's internal send machinery.
+        self._locks: dict[int, asyncio.Lock] = {}
 
     async def connect(self, ws: WebSocket):
         await ws.accept()
         self.active.append(ws)
+        self._locks[id(ws)] = asyncio.Lock()
 
     def disconnect(self, ws: WebSocket):
         if ws in self.active:
             self.active.remove(ws)
+        self._locks.pop(id(ws), None)
 
     async def broadcast(self, message: dict):
-        """Send to all clients concurrently with a per-client timeout.
+        """Send to all clients in parallel, serialized per-connection.
 
-        Sequential sends let one slow/dead client block the whole event loop.
-        asyncio.gather runs all sends in parallel; wait_for evicts a client
-        that doesn't drain its buffer within 5 s (e.g. dead ngrok tunnel).
+        asyncio.gather → all connections send at the same time (parallel).
+        Per-connection lock → concurrent broadcast() calls queue up per socket
+          instead of firing simultaneous writes (which corrupt WebSocket frames).
+        wait_for(5s) → dead/slow clients are evicted quickly.
         """
         if not self.active:
             return
 
         async def _send(ws: WebSocket) -> WebSocket | None:
+            lock = self._locks.get(id(ws))
             try:
-                await asyncio.wait_for(ws.send_json(message), timeout=5.0)
-                return None          # OK
+                if lock:
+                    async with lock:
+                        await asyncio.wait_for(ws.send_json(message), timeout=5.0)
+                else:
+                    await asyncio.wait_for(ws.send_json(message), timeout=5.0)
+                return None
             except Exception:
-                return ws            # dead — caller will remove
+                return ws   # dead — caller will remove
 
-        results = await asyncio.gather(*[_send(ws) for ws in list(self.active)],
-                                       return_exceptions=False)
-        for ws in results:
-            if ws is not None:
-                self.disconnect(ws)
+        results = await asyncio.gather(
+            *[_send(ws) for ws in list(self.active)],
+            return_exceptions=True,   # never let one client abort the whole gather
+        )
+        for r in results:
+            if isinstance(r, WebSocket):
+                self.disconnect(r)
 
 
 manager = ConnectionManager()
@@ -305,6 +320,20 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# ─── Slow-request logger ──────────────────────────────────────────────────────
+# Logs any request that takes longer than SLOW_THRESHOLD seconds.
+# Helps identify which endpoint is blocking the event loop.
+SLOW_THRESHOLD = 1.0   # seconds
+
+@app.middleware("http")
+async def log_slow_requests(request, call_next):
+    t0 = time.perf_counter()
+    response = await call_next(request)
+    elapsed = time.perf_counter() - t0
+    if elapsed > SLOW_THRESHOLD:
+        print(f"[SLOW] {request.method} {request.url.path} → {elapsed:.2f}s")
+    return response
 
 # Serve dashboard static files
 DASHBOARD_DIR = os.path.join(os.path.dirname(__file__), "..", "dashboard")
@@ -483,6 +512,24 @@ async def latest():
     if not _last_sensor_payload:
         return {"status": "no_data", "message": "No sensor data received yet. Start mqtt_replay.py first."}
     return {"status": "ok", **_last_sensor_payload}
+
+
+@app.get("/debug")
+async def debug():
+    """Snapshot of server internals — useful for diagnosing hangs."""
+    all_tasks = asyncio.all_tasks()
+    pending   = [str(t.get_coro()) for t in all_tasks if not t.done()]
+    return {
+        "ws_clients":          len(manager.active),
+        "forced_state":        _forced_state,
+        "nodered_last_inject": round(time.time() - _nodered_last_inject, 1),
+        "ai_semaphore_value":  _ai_semaphore._value,
+        "ai_semaphore_waiters": len(_ai_semaphore._waiters) if hasattr(_ai_semaphore, '_waiters') else "?",
+        "pending_tasks":       len(pending),
+        "pending_task_names":  pending[:20],   # first 20 only
+        "last_alert_ago_s":    round(time.time() - _last_alert_time, 1),
+        "nodered_active":      (time.time() - _nodered_last_inject) < 5.0,
+    }
 
 
 @app.post("/analyze")
@@ -817,17 +864,22 @@ async def _do_send_alert(req: AlertRequest) -> dict:
             else "⚠️ WARNING — Pump Anomaly Detected"
         )
 
-        # resend.Emails.send is synchronous (blocking HTTP) — run in thread
+        # resend.Emails.send is synchronous (blocking HTTP) — run in a thread
         # so it never blocks the asyncio event loop / WebSocket broadcasts.
+        # Hard 15 s timeout: if Resend API is unreachable the thread would
+        # otherwise hang indefinitely, filling the thread pool over time.
         html_body = _build_email_html(req)
-        await asyncio.to_thread(
-            resend.Emails.send,
-            {
-                "from":    ALERT_FROM,
-                "to":      ALERT_TO,
-                "subject": subject,
-                "html":    html_body,
-            },
+        await asyncio.wait_for(
+            asyncio.to_thread(
+                resend.Emails.send,
+                {
+                    "from":    ALERT_FROM,
+                    "to":      ALERT_TO,
+                    "subject": subject,
+                    "html":    html_body,
+                },
+            ),
+            timeout=15.0,
         )
 
         _last_alert_time = now
