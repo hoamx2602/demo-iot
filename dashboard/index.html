@@ -119,84 +119,60 @@
   .health-sub { font-size: 0.8rem; color: var(--text-muted); line-height: 1.5; }
 
   /* ── Timeline ── */
-  /* ── Failure Prediction Timeline (redesign) ── */
-  .tl-wrap { display: flex; flex-direction: column; gap: 0; }
+  /* ── Failure Prediction Timeline ── */
+  .tl-wrap { display: flex; flex-direction: column; gap: 14px; }
 
-  /* Outer container — holds track + all pins, sized to leave room above/below */
-  .tl-scene {
-    position: relative;
-    height: 86px;          /* room for labels above (36px) + track (8px) + time labels below (30px) */
-    margin: 8px 12px 0;
+  /* 4-step journey row */
+  .tl-journey {
+    display: flex; align-items: center; gap: 0;
+    padding: 4px 0 0;
   }
-
-  /* Horizontal rail */
-  .tl-rail {
-    position: absolute; top: 36px; left: 0; right: 0; height: 8px;
-    background: var(--surface2); border-radius: 4px; overflow: hidden;
-  }
-  /* Past fill — green → yellow, updates width via JS */
-  .tl-rail-past {
-    position: absolute; top: 0; left: 0; height: 100%;
-    background: linear-gradient(90deg, var(--green), var(--yellow));
-    transition: width .6s ease;
-  }
-  /* Future zone — dashed border overlay drawn with a pseudo-element workaround */
-  .tl-rail-future {
-    position: absolute; top: 0; height: 100%;
-    background: rgba(239,68,68,.18);
-    border-right: 2px dashed rgba(239,68,68,.5);
-    transition: left .6s ease, width .6s ease;
-  }
-
-  /* Generic milestone pin */
-  .tl-mk {
-    position: absolute; top: 0; /* horizontally centered by JS left + transform */
-    transform: translateX(-50%);
+  /* Each milestone column */
+  .tl-step {
     display: flex; flex-direction: column; align-items: center;
-    pointer-events: none; z-index: 4;
+    flex: 0 0 auto; min-width: 90px; gap: 4px;
   }
-  /* Label above rail */
-  .tl-mk-label {
-    font-size: .62rem; font-weight: 700; white-space: nowrap;
-    padding: 2px 7px; border-radius: 10px; margin-bottom: 4px;
-    border: 1px solid currentColor;
+  .tl-step-badge {
+    font-size: .65rem; font-weight: 700; white-space: nowrap;
+    padding: 3px 9px; border-radius: 10px;
+    border: 1.5px solid currentColor;
     background: var(--surface);
   }
-  /* Dot on rail */
-  .tl-mk-dot {
-    width: 14px; height: 14px; border-radius: 50%;
+  .tl-step-dot {
+    width: 16px; height: 16px; border-radius: 50%;
     background: currentColor;
-    border: 2px solid var(--bg);
+    border: 2.5px solid var(--bg);
     box-shadow: 0 0 0 2px currentColor;
-    position: relative; z-index: 3;
     flex-shrink: 0;
   }
-  /* Time label below rail */
-  .tl-mk-time {
-    font-size: .6rem; color: var(--text-muted); white-space: nowrap; margin-top: 5px;
+  .tl-step-dot.pulse { animation: pulse 1.8s ease-in-out infinite; }
+  .tl-step-time {
+    font-size: .68rem; font-weight: 600; white-space: nowrap;
     font-variant-numeric: tabular-nums;
   }
+  .tl-step-sub {
+    font-size: .6rem; color: var(--text-muted); white-space: nowrap;
+  }
+  /* Connector lines between steps */
+  .tl-conn {
+    flex: 1; height: 3px; border-radius: 2px;
+    align-self: center; margin-bottom: 28px; /* vertically align with dots */
+    min-width: 20px;
+  }
+  .tl-conn.solid-green  { background: var(--green); }
+  .tl-conn.solid-yellow { background: var(--yellow); }
+  .tl-conn.dashed-red {
+    background: none;
+    border-top: 3px dashed rgba(239,68,68,.5);
+    height: 0;
+  }
+  .tl-conn.muted {
+    background: var(--border);
+  }
 
-  /* NOW marker — special: triangle pointer + vertical dashed line */
-  .tl-now {
-    position: absolute; top: 0;
-    transform: translateX(-50%);
-    display: flex; flex-direction: column; align-items: center;
-    pointer-events: none; z-index: 5;
-  }
-  .tl-now-label {
-    font-size: .62rem; font-weight: 700; color: #fff;
-    background: var(--cyan); border-radius: 10px;
-    padding: 2px 8px; margin-bottom: 4px; white-space: nowrap;
-  }
-  .tl-now-line {
-    width: 2px; height: 44px;
-    background: var(--cyan); opacity: .6;
-  }
-
-  /* Stats row below the scene */
+  /* Stats row */
   .tl-stats {
-    display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 14px;
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px;
   }
   .tl-stat {
     background: var(--surface2); border-radius: 8px; padding: 11px 13px;
@@ -541,43 +517,58 @@
 
     <div class="tl-wrap">
 
-      <!-- Timeline scene: rail + markers, all positioned in real-time -->
-      <div class="tl-scene" id="tl-scene">
+      <!-- 4-milestone journey — fixed positions, no overlap possible -->
+      <div class="tl-journey">
 
-        <!-- Rail background + fills -->
-        <div class="tl-rail" id="tl-rail">
-          <div class="tl-rail-past" id="tl-rail-past" style="width:0%"></div>
-          <div class="tl-rail-future" id="tl-rail-future" style="left:0%;width:0%;display:none"></div>
+        <!-- 1. SESSION START -->
+        <div class="tl-step" style="color:var(--green)">
+          <div class="tl-step-badge">▶ Start</div>
+          <div class="tl-step-dot"></div>
+          <div class="tl-step-time" id="tl-start-time">–</div>
+          <div class="tl-step-sub">Session begin</div>
         </div>
 
-        <!-- START marker (always visible) -->
-        <div class="tl-mk" id="tl-mk-start" style="left:2%;color:var(--green)">
-          <div class="tl-mk-label">▶ Start</div>
-          <div class="tl-mk-dot"></div>
-          <div class="tl-mk-time" id="tl-start-time">–</div>
+        <!-- connector: start → anomaly (green when normal, yellow when anomaly seen) -->
+        <div class="tl-conn muted" id="tl-conn1"></div>
+
+        <!-- 2. FIRST ANOMALY (hidden until anomaly fires) -->
+        <div class="tl-step" id="tl-step-anomaly" style="color:var(--yellow);display:none">
+          <div class="tl-step-badge">⚠ Anomaly</div>
+          <div class="tl-step-dot"></div>
+          <div class="tl-step-time" id="tl-anomaly-elapsed">–</div>
+          <div class="tl-step-sub" id="tl-anomaly-clock">–</div>
+        </div>
+        <!-- placeholder when anomaly not yet seen -->
+        <div class="tl-step" id="tl-step-anomaly-pending" style="color:var(--border)">
+          <div class="tl-step-badge" style="opacity:.4">⚠ Anomaly</div>
+          <div class="tl-step-dot" style="background:var(--border);box-shadow:none"></div>
+          <div class="tl-step-time" style="opacity:.3">Waiting…</div>
+          <div class="tl-step-sub" style="opacity:.3">Not yet detected</div>
         </div>
 
-        <!-- ANOMALY marker (hidden until first anomaly) -->
-        <div class="tl-mk" id="tl-mk-anomaly" style="left:50%;color:var(--yellow);display:none">
-          <div class="tl-mk-label">⚠ Anomaly</div>
-          <div class="tl-mk-dot"></div>
-          <div class="tl-mk-time" id="tl-anomaly-time">–</div>
+        <!-- connector: anomaly → now -->
+        <div class="tl-conn muted" id="tl-conn2"></div>
+
+        <!-- 3. NOW (always visible, ticking) -->
+        <div class="tl-step" style="color:var(--cyan)">
+          <div class="tl-step-badge" style="background:var(--cyan);color:#0a0e1a;border-color:var(--cyan)">▼ NOW</div>
+          <div class="tl-step-dot pulse" style="background:var(--cyan);box-shadow:0 0 0 2px var(--cyan)"></div>
+          <div class="tl-step-time" id="tl-now-elapsed">0s</div>
+          <div class="tl-step-sub" id="tl-now-clock">–</div>
         </div>
 
-        <!-- NOW marker (moving) -->
-        <div class="tl-now" id="tl-now" style="left:10%">
-          <div class="tl-now-label">▼ NOW</div>
-          <div class="tl-now-line"></div>
+        <!-- connector: now → failure (dashed red when prediction known) -->
+        <div class="tl-conn muted" id="tl-conn3"></div>
+
+        <!-- 4. EST. FAILURE (dim until AI gives prediction) -->
+        <div class="tl-step" id="tl-step-fail" style="color:var(--border)">
+          <div class="tl-step-badge" id="tl-fail-badge" style="opacity:.4">🔴 Est. Failure</div>
+          <div class="tl-step-dot" id="tl-fail-dot" style="background:var(--border);box-shadow:none"></div>
+          <div class="tl-step-time" id="tl-fail-eta" style="opacity:.3">–</div>
+          <div class="tl-step-sub" id="tl-fail-clock" style="opacity:.3">Awaiting AI</div>
         </div>
 
-        <!-- EST. FAILURE marker (hidden until AI gives prediction) -->
-        <div class="tl-mk" id="tl-mk-fail" style="left:95%;color:var(--red);display:none">
-          <div class="tl-mk-label">🔴 Est. Failure</div>
-          <div class="tl-mk-dot"></div>
-          <div class="tl-mk-time" id="tl-fail-time">–</div>
-        </div>
-
-      </div><!-- .tl-scene -->
+      </div><!-- .tl-journey -->
 
       <!-- Stats row -->
       <div class="tl-stats">
@@ -593,9 +584,9 @@
           <div class="tl-stat-label">In Phase</div>
           <div class="tl-stat-value" id="tl-phase-duration">–</div>
         </div>
-        <div class="tl-stat" style="border-left-color:var(--red)" id="tl-pred-card">
+        <div class="tl-stat" id="tl-pred-card" style="border-left-color:var(--border)">
           <div class="tl-stat-label">Est. Failure</div>
-          <div class="tl-stat-value" id="tl-pred-time" style="font-size:.85rem;color:var(--text-muted)">No prediction</div>
+          <div class="tl-stat-value" id="tl-pred-time" style="color:var(--text-muted);font-size:.85rem">Awaiting AI</div>
         </div>
       </div>
 
@@ -1174,22 +1165,36 @@ function processSensorUpdate(data) {
 // TIMELINE
 // ═══════════════════════════════════════════════════════════════
 // Track phase start times
-// ── Phase tracking (real-time) ─────────────────────────────────
+// ── Phase tracking ────────────────────────────────────────────
 const _phaseStart = { NORMAL: window._sessionStart || Date.now(), DEGRADING: null };
 let   _lastPhase  = 'NORMAL';
 
 function _fmt(ms) {
-  // Format elapsed milliseconds as "Xm Ys" or "Xh Ym"
   const sec = Math.round(ms / 1000);
   if (sec < 60)   return sec + 's';
   if (sec < 3600) return Math.floor(sec/60) + 'm ' + (sec%60) + 's';
   return Math.floor(sec/3600) + 'h ' + Math.floor((sec%3600)/60) + 'm';
 }
-
-function _fmtAbsTime(ms) {
-  // Absolute timestamp → "HH:MM:SS"
+function _fmtTime(ms) {
   return new Date(ms).toLocaleTimeString([], { hour:'2-digit', minute:'2-digit', second:'2-digit' });
 }
+
+// Tick the "NOW" elapsed counter every second independently of sensor updates
+setInterval(() => {
+  const elapsed = Date.now() - (window._sessionStart || Date.now());
+  document.getElementById('tl-now-elapsed').textContent = _fmt(elapsed);
+  document.getElementById('tl-now-clock').textContent   = _fmtTime(Date.now());
+
+  // Countdown in Est. Failure card
+  if (state._predFailureAt) {
+    const left = Math.max(state._predFailureAt - Date.now(), 0);
+    const h    = left / 3_600_000;
+    document.getElementById('tl-fail-eta').textContent =
+      h < 1 ? `~${Math.round(h * 60)} min` : `~${h.toFixed(1)}h`;
+    document.getElementById('tl-pred-time').textContent =
+      h < 1 ? `~${Math.round(h * 60)} min from now` : `~${h.toFixed(1)}h from now`;
+  }
+}, 1000);
 
 // ── Main timeline updater (called on every sensor_update) ──────
 function updateTimeline(data) {
@@ -1214,84 +1219,56 @@ function updateTimeline(data) {
   }
 
   // ── Health card ───────────────────────────────────────────────
-  const healthEl   = document.getElementById('tl-health');
-  const healthCard = document.getElementById('tl-health-card');
+  const healthEl = document.getElementById('tl-health');
+  const hColor   = score >= 70 ? 'var(--green)' : score >= 40 ? 'var(--yellow)' : 'var(--red)';
   healthEl.textContent = score + '%';
-  const hColor = score >= 70 ? 'var(--green)' : score >= 40 ? 'var(--yellow)' : 'var(--red)';
-  healthEl.style.color          = hColor;
-  healthCard.style.borderLeftColor = hColor;
+  healthEl.style.color = hColor;
+  document.getElementById('tl-health-card').style.borderLeftColor = hColor;
 
-  // ── Phase card ────────────────────────────────────────────────
-  document.getElementById('tl-phase-val').textContent          = phaseMap[os] || os;
-  document.getElementById('tl-phase-val').style.color          = phaseColors[os] || 'var(--text)';
+  // ── Phase + time-in-phase cards ───────────────────────────────
+  document.getElementById('tl-phase-val').textContent            = phaseMap[os] || os;
+  document.getElementById('tl-phase-val').style.color            = phaseColors[os] || 'var(--text)';
   document.getElementById('tl-phase-card').style.borderLeftColor = phaseColors[os] || 'var(--cyan)';
-
-  // ── Time in current phase ─────────────────────────────────────
   const phaseElapsed = _phaseStart[phaseKey] ? now - _phaseStart[phaseKey] : 0;
   document.getElementById('tl-phase-duration').textContent = _fmt(phaseElapsed);
 
-  // ── Timeline geometry ─────────────────────────────────────────
-  // Total span: session start → predicted failure (or 2× elapsed if no prediction)
-  const elapsedMs    = now - sessionStart;
-  const predMs       = state._predHours ? state._predHours * 3_600_000 : null;
-  const failAtMs     = state._predFailureAt || null;                // absolute ms set by AI
-  const totalSpanMs  = failAtMs
-    ? Math.max(failAtMs - sessionStart, elapsedMs * 1.1)
-    : elapsedMs * 2.2 || 120_000;                                   // default 2-min window
+  // ── START milestone ───────────────────────────────────────────
+  document.getElementById('tl-start-time').textContent = _fmtTime(sessionStart);
 
-  function pct(ms) {
-    return Math.min(Math.max((ms / totalSpanMs) * 100, 0), 98);
+  // ── NOW milestone (elapsed + clock updated by setInterval above) ──
+  // nothing extra needed here — setInterval handles it
+
+  // ── Connector colours ─────────────────────────────────────────
+  // conn1: Start→Anomaly — green once anomaly seen, else muted
+  // conn2: Anomaly→Now — yellow once anomaly seen
+  // conn3: Now→Failure — dashed red once prediction known
+  const hasAnomaly = !!state.firstAnomalyAt;
+  const hasFail    = !!state._predFailureAt;
+  document.getElementById('tl-conn1').className = 'tl-conn ' + (hasAnomaly ? 'solid-green'  : 'muted');
+  document.getElementById('tl-conn2').className = 'tl-conn ' + (hasAnomaly ? 'solid-yellow' : 'muted');
+  document.getElementById('tl-conn3').className = 'tl-conn ' + (hasFail    ? 'dashed-red'   : 'muted');
+
+  // ── ANOMALY milestone ─────────────────────────────────────────
+  if (hasAnomaly) {
+    document.getElementById('tl-step-anomaly-pending').style.display = 'none';
+    const el = document.getElementById('tl-step-anomaly');
+    el.style.display = 'flex';
+    document.getElementById('tl-anomaly-elapsed').textContent = '+' + _fmt(state.firstAnomalyAt - sessionStart);
+    document.getElementById('tl-anomaly-clock').textContent   = _fmtTime(state.firstAnomalyAt);
   }
 
-  // Start marker
-  document.getElementById('tl-mk-start').style.left = '2%';
-  document.getElementById('tl-start-time').textContent = _fmtAbsTime(sessionStart);
-
-  // NOW marker + past rail fill
-  const nowPct = pct(elapsedMs);
-  document.getElementById('tl-now').style.left       = nowPct + '%';
-  document.getElementById('tl-rail-past').style.width = nowPct + '%';
-
-  // Colour the past fill: green if NORMAL, yellow if degrading, red if critical
-  const pastGrad = phaseKey === 'NORMAL'
-    ? 'linear-gradient(90deg,var(--green),var(--green))'
-    : state.firstAnomalyAt
-      ? `linear-gradient(90deg,var(--green) ${pct(state.firstAnomalyAt - sessionStart)}%,var(--yellow))`
-      : 'linear-gradient(90deg,var(--green),var(--yellow))';
-  document.getElementById('tl-rail-past').style.background = pastGrad;
-
-  // Anomaly marker
-  if (state.firstAnomalyAt) {
-    const anomPct = pct(state.firstAnomalyAt - sessionStart);
-    const mk = document.getElementById('tl-mk-anomaly');
-    mk.style.display = 'flex';
-    mk.style.left    = Math.min(anomPct, nowPct - 8) + '%';    // never overlap NOW
-    document.getElementById('tl-anomaly-time').textContent = _fmtAbsTime(state.firstAnomalyAt);
-  }
-
-  // Predicted failure marker + future zone
-  if (failAtMs) {
-    const failPct = pct(failAtMs - sessionStart);
-    const mk = document.getElementById('tl-mk-fail');
-    mk.style.display = 'flex';
-    mk.style.left    = Math.max(failPct, nowPct + 8) + '%';    // always right of NOW
-    document.getElementById('tl-fail-time').textContent = _fmtAbsTime(failAtMs);
-
-    // Future zone: from NOW to Est. Failure
-    const futureW = failPct - nowPct;
-    const fr = document.getElementById('tl-rail-future');
-    fr.style.display = 'block';
-    fr.style.left    = nowPct + '%';
-    fr.style.width   = Math.max(futureW, 0) + '%';
-
-    // Prediction card
-    const hoursLeft = Math.max((failAtMs - now) / 3_600_000, 0);
-    const predText  = hoursLeft < 1
-      ? `~${Math.round(hoursLeft * 60)} min`
-      : `~${hoursLeft.toFixed(1)}h`;
-    document.getElementById('tl-pred-time').textContent = predText + ' from now';
-    document.getElementById('tl-pred-time').style.color = 'var(--red)';
+  // ── EST. FAILURE milestone ────────────────────────────────────
+  if (hasFail) {
+    const failStep = document.getElementById('tl-step-fail');
+    failStep.style.color = 'var(--red)';
+    document.getElementById('tl-fail-badge').style.opacity = '1';
+    document.getElementById('tl-fail-dot').style.background   = 'var(--red)';
+    document.getElementById('tl-fail-dot').style.boxShadow    = '0 0 0 2px var(--red)';
+    document.getElementById('tl-fail-clock').textContent      = _fmtTime(state._predFailureAt);
+    document.getElementById('tl-fail-clock').style.opacity    = '1';
+    document.getElementById('tl-fail-eta').style.opacity      = '1';
     document.getElementById('tl-pred-card').style.borderLeftColor = 'var(--red)';
+    document.getElementById('tl-pred-time').style.color = 'var(--red)';
   }
 }
 
