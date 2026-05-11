@@ -58,9 +58,12 @@
 
 ---
 
-**Q9. Nếu không có Node-RED, hệ thống có vẫn hoạt động không?**
+**Q9. Làm thế nào để mở rộng (scale) Node-RED nếu hệ thống tăng lên 50 hay 100 máy bơm?**
 
-> **Đáp án:** Có — và thực ra trong hệ thống này, FastAPI backend đã tự nhận dữ liệu từ MQTT và đẩy lên dashboard. Node-RED đóng vai trò "tầng xử lý thông minh ở giữa": nó tính toán xu hướng 60 readings và quyết định khi nào trigger cảnh báo AI, thay vì để backend tự làm mọi thứ. Đây là pattern đúng với IoT thực tế — xử lý ở "edge" (gần nguồn dữ liệu) thay vì gửi mọi thứ lên cloud.
+> **Đáp án:** Có 3 cách để scale Node-RED khi số lượng thiết bị tăng lên:
+> 1. **Topic Partitioning (Chia nhỏ luồng dữ liệu):** Thiết lập `factory/site1/#` vào Node-RED số 1, `factory/site2/#` vào Node-RED số 2. Chạy nhiều instance Node-RED song song (qua Docker/PM2).
+> 2. **Chuyển State ra bên ngoài:** Nếu flow cần lưu trữ state (như rolling buffer 60 readings), lưu nó vào Redis thay vì memory của Node-RED, giúp các Node-RED container hoàn toàn stateless và dễ dàng scale ngang bằng Kubernetes.
+> 3. **Chuyển đổi công nghệ:** Node-RED cực kỳ tốt để làm prototype và edge computing ở quy mô vừa. Khi hệ thống lên đến hàng nghìn thiết bị và hàng chục nghìn msg/s, các kỹ sư thường dùng nó làm thiết kế luồng, sau đó chuyển logic sang các hệ thống stream processing chuyên dụng như **Apache Kafka Streams**, **Apache Flink**, hoặc các dịch vụ native cloud (AWS IoT Rules, Azure Stream Analytics).
 
 ---
 
