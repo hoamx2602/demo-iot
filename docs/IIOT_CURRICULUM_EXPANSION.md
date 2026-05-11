@@ -64,28 +64,17 @@ Below are four adapted module proposals.
 
 To help students deeply understand the *business and architectural value* of IIoT without any hands-on configuration, the following "plug-and-play" demonstrations can be used by the instructor to create highly engaging, futuristic learning moments:
 
-### 🌟 Showcase 1: The "Edge vs. Cloud" Race (Understanding Architecture)
-*   **Concept:** Explaining why industrial systems use Edge Computing instead of sending everything to the cloud.
-*   **The Fancy Demo:** The instructor presents a split-screen web dashboard. 
-    *   **Left Side (Cloud-Only):** The simulated pump connects directly to an AI server. The latency meter reads `250ms`.
-    *   **Right Side (Edge-AI):** The pump processes data locally via Node-RED. The latency reads `5ms`.
-    *   **The "Show":** The instructor clicks a big button labeled **"Cut the Internet"** (simulating an offshore network outage). The left side freezes, and the pump "breaks" silently. The right side (Edge) continues receiving data, detects the anomaly locally, and successfully triggers an automated "Emergency Shutoff" command.
-*   **Value Add:** Students instantly grasp the concepts of "Latency" and "Reliability" and why Edge Computing is critical for survival in an industrial setting.
+### 🌟 Showcase 1: The "Edge vs. Cloud" Race
+*   **Concept:** Visually explain the critical importance of Latency and Reliability in industrial architecture.
+*   **Demo Idea:** A split-screen dashboard comparing a pump running on Cloud AI vs. Local Edge AI. The instructor clicks "Cut the Internet". The Cloud pump freezes, while the Edge pump successfully triggers an emergency shutoff offline. 
 
-### 🌟 Showcase 2: AR Maintenance Overlay (The Connected Worker)
-*   **Concept:** Bringing IIoT data out of the control room and into the physical world.
-*   **The Fancy Demo:** 
-    *   A printed image of a pump (or a QR code) is placed on the students' desks.
-    *   Students open a Web App URL on their smartphones and point their cameras at the paper.
-    *   **The "Show":** Using WebAR (Augmented Reality), real-time MQTT data (Temperature, Vibration) floats in 3D space directly above the printed paper. When the instructor triggers a simulated overheating anomaly, a red flashing warning appears in AR, with a virtual arrow pointing exactly to the valve that needs to be turned on the paper.
-*   **Value Add:** A highly futuristic demonstration that redefines how field engineers interact with machines, creating a lasting "Wow" impression.
+### 🌟 Showcase 2: AR Maintenance Overlay
+*   **Concept:** Demonstrate "The Connected Worker" by bringing IIoT data into the physical world.
+*   **Demo Idea:** Students point their smartphones at a printed QR code. Using WebAR, real-time MQTT data (temperature, vibration) and 3D warning arrows float in augmented reality directly over the paper.
 
-### 🌟 Showcase 3: Energy Flow Sankey Diagram (ESG & Cost Optimization)
-*   **Concept:** Translating raw sensor data (Volts/Amps) into Business Language (Carbon Emissions & Wasted Dollars).
-*   **The Fancy Demo:** 
-    *   The dashboard features a live **Sankey Diagram** mapping the energy flow from the Power Grid to the Pump to the Output Flow.
-    *   **The "Show":** Normally, the flow is green and stable. When the pump starts degrading (e.g., a failing bearing), it draws more electricity but pumps less water. The energy flow on the diagram dynamically bulges and turns red at the "Energy Loss" branch. Next to it, a real-time counter starts aggressively ticking up the "Wasted Dollars ($/hr)" and "Unnecessary CO2 Emissions (kg)".
-*   **Value Add:** Elevates the conversation from basic machine maintenance to executive-level concerns: Sustainability (ESG) and Financial Optimization.
+### 🌟 Showcase 3: Energy Flow Sankey Diagram (ESG)
+*   **Concept:** Translate technical sensor data into business language (Carbon Emissions & Wasted Cost).
+*   **Demo Idea:** A dynamic Sankey diagram maps live energy flow. When an anomaly occurs, the "Energy Loss" branch visually bulges and turns red, while a real-time counter calculates the wasted dollars and CO2 emissions.
 
 ---
 
