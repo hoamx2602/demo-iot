@@ -71,17 +71,26 @@
 
 **Q10. AI trong hệ thống này làm gì khác so với việc chỉ so sánh ngưỡng?**
 
-> **Đáp án:** So sánh ngưỡng chỉ trả lời "có vượt ngưỡng không?" — ví dụ vibration > 7 = cảnh báo. AI trả lời những câu phức tạp hơn: "Dựa trên pattern này, nguyên nhân có thể là gì? Còn bao nhiêu giờ trước khi hỏng hoàn toàn? Nên làm gì ngay bây giờ? Nếu dừng bảo trì hôm nay vs để đến cuối tuần thì tiết kiệm được bao nhiêu chi phí?" — những câu hỏi này cần hiểu ngữ cảnh kỹ thuật, không chỉ là phép so sánh số.
+> **Đáp án:** So sánh ngưỡng chỉ trả lời "có vượt ngưỡng không?" — ví dụ vibration > 7 = cảnh báo. AI trả lời những câu phức tạp hơn: "Dựa trên pattern này, nguyên nhân có thể là gì? Nên làm gì ngay bây giờ? Nếu dừng bảo trì hôm nay vs để đến cuối tuần thì tiết kiệm được bao nhiêu chi phí?" — những câu hỏi này cần hiểu ngữ cảnh kỹ thuật, không chỉ là phép so sánh số.
 
 ---
 
-**Q11. Tại sao không dùng AI ngay từ đầu mà cần Node-RED tính toán trước?**
+**Q11. Mức độ "dự đoán" (prediction) trong hệ thống này thực chất đến đâu? Có chính xác hoàn toàn không?**
+
+> **Đáp án:** Hệ thống hiện tại thiên về **Cảnh báo sớm (Early Warning)** và **Hướng dẫn hành động (Prescriptive)** thay vì dự đoán phần trăm chính xác thời điểm hỏng.
+> *   **Hạn chế của dữ liệu:** LLM hiện tại đưa ra con số "giờ dự kiến hỏng hóc" dựa trên kinh nghiệm cơ khí chung và *snapshot* dữ liệu tại một thời điểm (kèm trend 60s). Nó chưa được học (train) từ dữ liệu lịch sử hỏng hóc (historical run-to-failure data) qua nhiều năm của *chính* cỗ máy này.
+> *   **Để nâng cấp:** Để hệ thống dự đoán chính xác tuyệt đối (Remaining Useful Life - RUL), ta cần lưu dữ liệu vào Time-series DB (InfluxDB), ghi nhận các mốc bảo trì thực tế, và huấn luyện một mô hình Machine Learning chuyên dụng (như LSTM, Random Forest). 
+> *   **Giá trị hiện tại:** Con số "giờ hỏng dự kiến" do AI đưa ra trong demo mang ý nghĩa **phân loại mức độ khẩn cấp** (vd: 2 giờ = tắt máy ngay lập tức, 72 giờ = xếp lịch tuần sau) để hỗ trợ quyết định nhanh, chứ không phải một đồng hồ đếm ngược tuyệt đối chính xác.
+
+---
+
+**Q12. Tại sao không dùng AI ngay từ đầu mà cần Node-RED tính toán trước?**
 
 > **Đáp án:** Gọi AI mỗi 167ms (6 lần/giây) là không thực tế — tốn quota API, chậm, và tốn kém. Hơn nữa, một điểm dữ liệu đơn lẻ không đủ thông tin: vibration 6.5 mm/s ở thời điểm T không nói lên nhiều, nhưng "tăng từ 3.0 lên 6.5 trong vòng 30 giây với xu hướng tiếp tục leo thang" mới đáng lo. Node-RED tổng hợp 60 readings thành một "bản tóm tắt" có ý nghĩa rồi mới gọi AI — vừa tiết kiệm, vừa cho AI đủ ngữ cảnh để phân tích tốt hơn.
 
 ---
 
-**Q12. Groq là gì? Tại sao chọn Groq thay vì ChatGPT hay Gemini?**
+**Q13. Groq là gì? Tại sao chọn Groq thay vì ChatGPT hay Gemini?**
 
 > **Đáp án:** Groq là công ty chip AI — họ tự thiết kế chip xử lý ngôn ngữ (LPU) nhanh hơn GPU thông thường khoảng 10 lần. Trong workshop này chọn Groq vì: free tier rộng rãi (14.400 request/ngày), đủ cho nhiều học viên dùng cùng lúc mà không bị lỗi 429 "quota exceeded". Còn Gemini free tier chỉ cho 5 request/phút — rất dễ bị nghẽn khi cả lớp cùng test. ChatGPT không có free tier đủ dùng cho workshop. Model dùng là llama-3.3-70b — mã nguồn mở, chạy tốt cho phân tích kỹ thuật.
 
@@ -89,19 +98,19 @@
 
 ## 📊 Giá trị kinh doanh
 
-**Q13. Làm thế nào để thuyết phục ban quản lý đầu tư vào hệ thống IoT như này?**
+**Q14. Làm thế nào để thuyết phục ban quản lý đầu tư vào hệ thống IoT như này?**
 
 > **Đáp án:** Số liệu cụ thể thường thuyết phục hơn lý thuyết: (1) Chi phí 1 lần dừng máy khẩn cấp so với 1 lần bảo trì có kế hoạch — thường chênh lệch 5–10 lần. (2) Thời gian triển khai: với stack này có thể pilot trong 2–4 tuần. (3) ROI rõ ràng: nếu ngăn được 1 lần dừng máy/năm, hệ thống đã hoàn vốn. Ngoài ra, bảo trì dự đoán giảm tồn kho phụ tùng (không cần giữ nhiều linh kiện dự phòng vì biết trước khi nào cần), và giảm rủi ro an toàn lao động.
 
 ---
 
-**Q14. Hệ thống này phù hợp với quy mô doanh nghiệp nào?**
+**Q15. Hệ thống này phù hợp với quy mô doanh nghiệp nào?**
 
 > **Đáp án:** Với stack hiện tại (Colab + free tier APIs), phù hợp để: demo, học tập, và pilot với 1–5 máy. Với VPS nhỏ ($20–50/tháng) và database, có thể quản lý 20–50 máy. Doanh nghiệp vừa (50–500 máy) cần thêm time-series database (InfluxDB), alert management và dashboard phân tầng. Doanh nghiệp lớn (500+ máy) thường dùng platform chuyên dụng như AWS IoT, Azure IoT Hub, hoặc Siemens MindSphere — nhưng nguyên tắc hoạt động giống hệt workshop này.
 
 ---
 
-**Q15. Ngoài máy móc, IoT predictive maintenance còn ứng dụng ở đâu?**
+**Q16. Ngoài máy móc, IoT predictive maintenance còn ứng dụng ở đâu?**
 
 > **Đáp án:** Cầu đường và kết cấu hạ tầng (cảm biến rung động phát hiện vết nứt sớm), đường ống dẫn dầu khí (cảm biến áp suất và rò rỉ), trung tâm dữ liệu (nhiệt độ server, tốc độ quạt), máy bay (hàng nghìn sensor theo dõi từng chuyến bay), lưới điện thông minh (phát hiện biến áp sắp hỏng), thậm chí nông nghiệp (sensor đất dự đoán khi nào cần tưới/bón phân). Bất cứ chỗ nào có tài sản vật lý quan trọng và chi phí hỏng hóc cao đều là ứng viên cho IoT predictive maintenance.
 

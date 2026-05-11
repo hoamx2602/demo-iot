@@ -195,7 +195,7 @@
 
 - *"What if the AI is wrong?"* → The AI generates a hypothesis, not a command. A human engineer reviews and decides whether to act. It's an advisory tool, not an autonomous controller.
 
-- *"How accurate is the time estimate?"* → Derived from the current degradation rate extrapolated linearly. In a real system, you'd train a regression model on historical failure data for calibrated predictions. The estimate here is directionally correct — useful for prioritisation.
+- *"How accurate is the time estimate?"* → It's an **Early Warning heuristic**, not a true Machine Learning prediction. The LLM estimates based on a single snapshot of data and general engineering rules. To get a highly accurate Remaining Useful Life (RUL) prediction, you would need to store this data in a time-series DB and train a dedicated ML model (like LSTM or Random Forest) on the historical failure patterns of *this specific pump*. The AI estimate here is directionally correct — meant to classify urgency (e.g. stop now vs fix next week) rather than give a perfect countdown.
 
 `[Run Scenario B — reset to NORMAL]`
 
